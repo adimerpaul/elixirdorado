@@ -37,7 +37,7 @@ class UserController extends Controller
             'name'        => 'required|string|max:100',
             'nickname'    => 'nullable|string|max:50',
             'email'       => 'required|email|max:255|unique:users,email',
-            'password'    => 'required|string|min:8',
+            'password'    => 'required|string',
             'rol'         => 'required|in:super_admin,admin,cajero',
             'sucursal_id' => 'nullable|exists:sucursales,id',
         ]);
@@ -65,7 +65,7 @@ class UserController extends Controller
             'name'        => 'required|string|max:100',
             'nickname'    => 'nullable|string|max:50',
             'email'       => ['required', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
-            'password'    => 'nullable|string|min:8',
+            'password'    => 'nullable|string',
             'rol'         => 'required|in:super_admin,admin,cajero',
             'sucursal_id' => 'nullable|exists:sucursales,id',
         ]);
