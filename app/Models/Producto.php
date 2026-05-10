@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Models\Tenant;
+namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,18 +12,22 @@ class Producto extends Model
     use SoftDeletes;
 
     protected $connection = 'tenant';
-    protected $table = 'productos';
+    protected $table      = 'productos';
 
     protected $fillable = [
-        'codigo_barras', 'nombre', 'descripcion', 'categoria_id',
-        'precio_compra', 'precio_venta', 'stock_actual', 'stock_minimo', 'imagen',
+        'codigo_barras', 'nombre', 'descripcion', 'imagen', 'categoria_id',
+        'precio_compra', 'precio_venta', 'precio_mayoreo',
+        'stock_actual', 'stock_minimo', 'stock_maximo', 'activo',
     ];
 
     protected $casts = [
-        'precio_compra' => 'decimal:2',
-        'precio_venta'  => 'decimal:2',
-        'stock_actual'  => 'integer',
-        'stock_minimo'  => 'integer',
+        'precio_compra'  => 'decimal:2',
+        'precio_venta'   => 'decimal:2',
+        'precio_mayoreo' => 'decimal:2',
+        'stock_actual'   => 'integer',
+        'stock_minimo'   => 'integer',
+        'stock_maximo'   => 'integer',
+        'activo'         => 'boolean',
     ];
 
     public function categoria(): BelongsTo

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Models\Tenant;
+namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -8,10 +8,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class DetalleVenta extends Model
 {
     protected $connection = 'tenant';
-    protected $table = 'detalle_ventas';
+    protected $table      = 'detalle_ventas';
 
     protected $fillable = [
-        'venta_id', 'producto_id', 'cantidad', 'precio_unitario', 'subtotal',
+        'venta_id', 'producto_id',
+        'cantidad', 'precio_unitario', 'subtotal',
     ];
 
     protected $casts = [
