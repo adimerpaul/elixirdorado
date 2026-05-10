@@ -2,8 +2,10 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Models\Sucursal;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
@@ -43,18 +45,27 @@ Route::get('/login', function () {
     return view('auth.login');
 })->name('login');
 
-// Procesar login
+// Procesar login — acepta email o nickname
 Route::post('/login', function () {
-    $credentials = request()->only('email', 'password');
-    
-    if (Auth::attempt($credentials)) {
+    $login    = trim(request()->input('login', ''));
+    $password = request()->input('password', '');
+
+    if (!$login || !$password) {
+        return back()->withErrors(['login' => 'Ingresa tu usuario y contraseña.'])->withInput();
+    }
+
+    // Buscar por email o por nickname
+    $user = \App\Models\User::where('email', $login)
+        ->orWhere('nickname', $login)
+        ->first();
+
+    if ($user && Hash::check($password, $user->password)) {
+        Auth::login($user);
         request()->session()->regenerate();
         return redirect('/admin');
     }
-    
-    return back()->withErrors([
-        'email' => 'Las credenciales no coinciden.',
-    ]);
+
+    return back()->withErrors(['login' => 'Usuario o contraseña incorrectos.'])->withInput();
 })->name('login.post');
 
 // Cerrar sesión
@@ -134,11 +145,11 @@ Route::post('/pedido/whatsapp', function () {
 });
 
 // ============================================
-// PANEL DE ADMINISTRACIÓN (protegido — solo super_admin/admin)
+// PANEL DE ADMINISTRACIÓN — Setup wizard (Blade) + SPA catch-all (Vue)
 // ============================================
-Route::prefix('admin')->middleware(['auth', 'role:super_admin,admin'])->group(function () {
 
-    // Setup wizard — primera instalación
+// Setup wizard para la primera instalación (Blade)
+Route::prefix('admin')->middleware(['auth', 'role:super_admin,admin'])->group(function () {
     Route::get('/setup', function () {
         if (Sucursal::count() > 0) return redirect('/admin');
         return view('admin.setup', ['errors' => session()->get('errors', new \Illuminate\Support\MessageBag)]);
@@ -164,147 +175,45 @@ Route::prefix('admin')->middleware(['auth', 'role:super_admin,admin'])->group(fu
             'admin_password_confirm.same' => 'Las contraseñas no coinciden.',
         ]);
 
-        // Crear sucursal y admin usando el modelo existente
         try {
-            $sucursal = Sucursal::crearSucursal([
-                'nombre'         => $data['nombre'],
-                'slug'           => $data['slug'],
-                'telefono'       => $data['telefono'] ?? null,
-                'direccion'      => $data['direccion'] ?? null,
-                'email'          => $data['admin_email'],
-                'admin_nombre'   => $data['admin_nombre'],
-                'admin_email'    => $data['admin_email'],
-                'admin_password' => $data['admin_password'],
+            $nombreBD = 'elixir_sucursal_' . str_replace('-', '_', $data['slug']);
+            DB::statement("CREATE DATABASE IF NOT EXISTS `{$nombreBD}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+
+            $sucursal = Sucursal::create([
+                'nombre'     => $data['nombre'],
+                'slug'       => $data['slug'],
+                'base_datos' => $nombreBD,
+                'telefono'   => $data['telefono'] ?? null,
+                'direccion'  => $data['direccion'] ?? null,
+                'email'      => $data['admin_email'],
+                'activa'     => true,
             ]);
-            return redirect('/admin')->with('success', "¡Sistema configurado! Bienvenido a Elixirdorado, {$data['admin_nombre']}.");
+
+            config(['database.connections.tenant.database' => $nombreBD]);
+            DB::purge('tenant'); DB::reconnect('tenant');
+            Artisan::call('migrate', [
+                '--path' => 'database/migrations/tenant', '--database' => 'tenant', '--force' => true,
+            ]);
+
+            \App\Models\User::create([
+                'name'        => $data['admin_nombre'],
+                'email'       => $data['admin_email'],
+                'password'    => Hash::make($data['admin_password']),
+                'rol'         => 'admin',
+                'sucursal_id' => $sucursal->id,
+            ]);
+
+            return redirect('/admin')->with('success', "¡Sistema configurado! Bienvenido a Elixirdorado.");
         } catch (\Exception $e) {
-            return back()->withErrors(['general' => 'Error al crear la sucursal: ' . $e->getMessage()])->withInput();
+            return back()->withErrors(['general' => 'Error: ' . $e->getMessage()])->withInput();
         }
     });
-
-    Route::get('/', function () {
-        // Si no hay sucursales, mostrar wizard de primera instalación
-        if (Sucursal::count() === 0) return redirect('/admin/setup');
-
-        $sucursales = Sucursal::all();
-
-        // Recopilar stats reales de cada sucursal
-        $stats = [];
-        foreach ($sucursales as $s) {
-            try {
-                config(['database.connections.tenant.database' => $s->base_datos]);
-                DB::purge('tenant'); DB::reconnect('tenant');
-
-                $stats[$s->id] = [
-                    'ventas_hoy'      => DB::connection('tenant')->table('ventas')->whereDate('fecha_venta', today())->where('estado','!=','cancelada')->sum('total'),
-                    'ventas_mes'      => DB::connection('tenant')->table('ventas')->whereMonth('fecha_venta', now()->month)->whereYear('fecha_venta', now()->year)->where('estado','!=','cancelada')->sum('total'),
-                    'total_productos' => DB::connection('tenant')->table('productos')->count(),
-                    'bajo_stock'      => DB::connection('tenant')->table('productos')->whereColumn('stock_actual','<=','stock_minimo')->count(),
-                    'total_clientes'  => Schema::connection('tenant')->hasTable('clientes')
-                        ? DB::connection('tenant')->table('clientes')->count() : 0,
-                    'ventas_count'    => DB::connection('tenant')->table('ventas')->whereDate('fecha_venta', today())->where('estado','!=','cancelada')->count(),
-                ];
-            } catch (\Exception $e) {
-                $stats[$s->id] = ['error' => true, 'ventas_hoy'=>0,'ventas_mes'=>0,'total_productos'=>0,'bajo_stock'=>0,'total_clientes'=>0,'ventas_count'=>0];
-            }
-        }
-
-        $totalHoyGlobal = collect($stats)->sum('ventas_hoy');
-        $totalMesGlobal = collect($stats)->sum('ventas_mes');
-
-        return view('admin.dashboard', compact('sucursales', 'stats', 'totalHoyGlobal', 'totalMesGlobal'));
-    });
-    
-    Route::post('/sucursales', function () {
-        try {
-            $sucursal = Sucursal::crearSucursal(request()->validate([
-                'nombre'         => 'required|string|max:100',
-                'slug'           => 'required|string|max:50|unique:sucursales|regex:/^[a-z0-9_-]+$/',
-                'direccion'      => 'nullable|string|max:255',
-                'telefono'       => 'nullable|string|max:30',
-                'email'          => 'nullable|email|max:255',
-                'admin_nombre'   => 'required|string|max:100',
-                'admin_email'    => 'required|email|max:255',
-                'admin_password' => 'required|min:8',
-            ], [
-                'slug.regex' => 'El identificador solo puede tener minúsculas, números, "_" y "-".',
-                'admin_password.min' => 'La contraseña del administrador debe tener al menos 8 caracteres.',
-            ]));
-            return redirect('/admin')->with('success', "Sucursal {$sucursal->nombre} creada");
-        } catch (\InvalidArgumentException $e) {
-            return back()->withErrors(['admin_password' => $e->getMessage()])->withInput();
-        } catch (\Throwable $e) {
-            return back()->withErrors(['general' => 'No se pudo crear la sucursal: ' . $e->getMessage()])->withInput();
-        }
-    });
-    
-    // Reportes
-    Route::get('/reportes', function () {
-        $sucursales = Sucursal::where('activa', true)->get();
-        $reportes = [];
-        
-        foreach ($sucursales as $sucursal) {
-            try {
-                config(['database.connections.tenant.database' => $sucursal->base_datos]);
-                DB::purge('tenant');
-                DB::reconnect('tenant');
-                
-                $ventasHoy = DB::connection('tenant')->table('ventas')
-                    ->whereDate('fecha_venta', today())
-                    ->sum('total');
-                
-                $ventasMes = DB::connection('tenant')->table('ventas')
-                    ->whereMonth('fecha_venta', now()->month)
-                    ->sum('total');
-                
-                $totalVentas = DB::connection('tenant')->table('ventas')->sum('total');
-                $cantidadVentas = DB::connection('tenant')->table('ventas')->count();
-                
-                $productosTop = DB::connection('tenant')->table('detalle_ventas')
-                    ->join('productos', 'detalle_ventas.producto_id', '=', 'productos.id')
-                    ->select('productos.nombre', DB::raw('SUM(detalle_ventas.cantidad) as total_vendido'))
-                    ->groupBy('productos.id', 'productos.nombre')
-                    ->orderBy('total_vendido', 'desc')
-                    ->limit(5)
-                    ->get();
-                
-                $reportes[$sucursal->slug] = [
-                    'sucursal' => $sucursal,
-                    'ventas_hoy' => $ventasHoy,
-                    'ventas_mes' => $ventasMes,
-                    'total_ventas' => $totalVentas,
-                    'cantidad_ventas' => $cantidadVentas,
-                    'productos_top' => $productosTop
-                ];
-            } catch (\Exception $e) {
-                $reportes[$sucursal->slug] = [
-                    'sucursal' => $sucursal,
-                    'error' => $e->getMessage()
-                ];
-            }
-        }
-        
-        $totalGeneral = collect($reportes)->sum('total_ventas');
-        $ventasHoyGeneral = collect($reportes)->sum('ventas_hoy');
-        $ventasMesGeneral = collect($reportes)->sum('ventas_mes');
-        
-        return view('admin.reportes', compact('reportes', 'totalGeneral', 'ventasHoyGeneral', 'ventasMesGeneral'));
-    })->name('admin.reportes');
-    
-    Route::get('/reportes/{slug}/ventas', function ($slug) {
-        $sucursal = Sucursal::where('slug', $slug)->firstOrFail();
-        
-        config(['database.connections.tenant.database' => $sucursal->base_datos]);
-        DB::purge('tenant');
-        DB::reconnect('tenant');
-        
-        $ventas = DB::connection('tenant')->table('ventas')
-            ->orderBy('created_at', 'desc')
-            ->paginate(20);
-        
-        return view('admin.ventas-sucursal', compact('sucursal', 'ventas'));
-    })->name('admin.ventas.sucursal');
 });
+
+// SPA Vue — catch-all para todas las demás rutas /admin/*
+Route::middleware(['auth', 'role:super_admin,admin'])
+    ->get('/admin/{any?}', fn () => view('admin.spa'))
+    ->where('any', '.*');
 
 // ============================================
 // PANEL DE CADA SUCURSAL (protegido)
