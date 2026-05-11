@@ -8,7 +8,8 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/dashboard', [DashboardController::class, 'index']);
 
-Route::apiResource('sucursales', SucursalController::class);
+Route::apiResource('sucursales', SucursalController::class)
+    ->parameters(['sucursales' => 'sucursal']);
 Route::patch('sucursales/{sucursal}/toggle', [SucursalController::class, 'toggle']);
 
 Route::apiResource('users', UserController::class);

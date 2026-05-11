@@ -8,21 +8,21 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::connection('central')->create('sucursales', function (Blueprint $table) {
+        Schema::create('sucursales', function (Blueprint $table) {
             $table->id();
-            $table->string('nombre');              // "Sucursal Centro"
-            $table->string('slug')->unique();      // "centro"
-            $table->string('base_datos');          // "elixir_sucursal_1"
+            $table->string('nombre');
+            $table->string('slug')->nullable()->unique();
             $table->string('direccion')->nullable();
             $table->string('telefono')->nullable();
             $table->string('email')->nullable();
             $table->boolean('activa')->default(true);
             $table->timestamps();
+            $table->softDeletes();
         });
     }
 
     public function down(): void
     {
-        Schema::connection('central')->dropIfExists('sucursales');
+        Schema::dropIfExists('sucursales');
     }
 };

@@ -11,11 +11,10 @@ class Producto extends Model
 {
     use SoftDeletes;
 
-    protected $connection = 'tenant';
-    protected $table      = 'productos';
+    protected $table = 'productos';
 
     protected $fillable = [
-        'codigo_barras', 'nombre', 'descripcion', 'imagen', 'categoria_id',
+        'sucursal_id', 'codigo_barras', 'nombre', 'descripcion', 'imagen', 'categoria_id',
         'precio_compra', 'precio_venta', 'precio_mayoreo',
         'stock_actual', 'stock_minimo', 'stock_maximo', 'activo',
     ];
@@ -29,6 +28,11 @@ class Producto extends Model
         'stock_maximo'   => 'integer',
         'activo'         => 'boolean',
     ];
+
+    public function sucursal(): BelongsTo
+    {
+        return $this->belongsTo(Sucursal::class);
+    }
 
     public function categoria(): BelongsTo
     {

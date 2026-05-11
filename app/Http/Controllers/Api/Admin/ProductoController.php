@@ -7,24 +7,20 @@ use App\Models\Categoria;
 use App\Models\Producto;
 use App\Models\Sucursal;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class ProductoController extends Controller
 {
-    private function switchTenant(Sucursal $sucursal): void
-    {
-        config(['database.connections.tenant.database' => $sucursal->base_datos]);
-        DB::purge('tenant');
-        DB::reconnect('tenant');
-    }
-
     public function index(Sucursal $sucursal)
     {
-        $this->switchTenant($sucursal);
+        $productos  = Producto::with('categoria:id,nombre')
+            ->where('sucursal_id', $sucursal->id)
+            ->orderBy('nombre')
+            ->get();
 
-        $productos  = Producto::with('categoria:id,nombre')->orderBy('nombre')->get();
-        $categorias = Categoria::orderBy('nombre')->get(['id', 'nombre']);
+        $categorias = Categoria::where('sucursal_id', $sucursal->id)
+            ->orderBy('nombre')
+            ->get(['id', 'nombre']);
 
         return response()->json([
             'productos'  => $productos,
@@ -34,8 +30,6 @@ class ProductoController extends Controller
 
     public function store(Request $request, Sucursal $sucursal)
     {
-        $this->switchTenant($sucursal);
-
         $data = $request->validate([
             'codigo_barras'  => 'nullable|string|max:100',
             'nombre'         => 'required|string|max:255',
@@ -56,6 +50,7 @@ class ProductoController extends Controller
         }
 
         $producto = Producto::create([
+            'sucursal_id'    => $sucursal->id,
             'codigo_barras'  => $data['codigo_barras'] ?? null,
             'nombre'         => $data['nombre'],
             'descripcion'    => $data['descripcion'] ?? null,
@@ -75,9 +70,7 @@ class ProductoController extends Controller
 
     public function update(Request $request, Sucursal $sucursal, int $id)
     {
-        $this->switchTenant($sucursal);
-
-        $producto = Producto::findOrFail($id);
+        $producto = Producto::where('sucursal_id', $sucursal->id)->findOrFail($id);
 
         $data = $request->validate([
             'codigo_barras'  => 'nullable|string|max:100',
@@ -120,9 +113,7 @@ class ProductoController extends Controller
 
     public function destroy(Sucursal $sucursal, int $id)
     {
-        $this->switchTenant($sucursal);
-
-        $producto = Producto::findOrFail($id);
+        $producto = Producto::where('sucursal_id', $sucursal->id)->findOrFail($id);
 
         if ($producto->imagen) {
             Storage::disk('public')->delete($producto->imagen);

@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Sucursal;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
@@ -29,41 +28,23 @@ class SucursalController extends Controller
             'admin_email'    => 'required|email|max:255|unique:users,email',
             'admin_password' => 'required|string|min:8',
         ], [
-            'slug.regex'           => 'El identificador solo puede tener minúsculas, números, "_" y "-".',
-            'slug.unique'          => 'Ya existe una sucursal con ese identificador.',
-            'admin_email.unique'   => 'Ese correo ya está registrado.',
-            'admin_password.min'   => 'La contraseña debe tener al menos 8 caracteres.',
+            'slug.regex'         => 'El identificador solo puede tener minúsculas, números, "_" y "-".',
+            'slug.unique'        => 'Ya existe una sucursal con ese identificador.',
+            'admin_email.unique' => 'Ese correo ya está registrado.',
+            'admin_password.min' => 'La contraseña debe tener al menos 8 caracteres.',
         ]);
 
         DB::beginTransaction();
         try {
-            $nombreBD = 'elixir_sucursal_' . str_replace('-', '_', $data['slug']);
-
-            // Create tenant database
-            DB::statement("CREATE DATABASE IF NOT EXISTS `{$nombreBD}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-
-            // Create sucursal record
             $sucursal = Sucursal::create([
-                'nombre'     => $data['nombre'],
-                'slug'       => $data['slug'],
-                'base_datos' => $nombreBD,
-                'direccion'  => $data['direccion'] ?? null,
-                'telefono'   => $data['telefono'] ?? null,
-                'email'      => $data['email'] ?? null,
-                'activa'     => true,
+                'nombre'    => $data['nombre'],
+                'slug'      => $data['slug'],
+                'direccion' => $data['direccion'] ?? null,
+                'telefono'  => $data['telefono'] ?? null,
+                'email'     => $data['email'] ?? null,
+                'activa'    => true,
             ]);
 
-            // Run tenant migrations
-            config(['database.connections.tenant.database' => $nombreBD]);
-            DB::purge('tenant');
-            DB::reconnect('tenant');
-            Artisan::call('migrate', [
-                '--path'     => 'database/migrations/tenant',
-                '--database' => 'tenant',
-                '--force'    => true,
-            ]);
-
-            // Create admin user for this sucursal
             User::create([
                 'name'        => $data['admin_nombre'],
                 'email'       => $data['admin_email'],

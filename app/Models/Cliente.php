@@ -3,22 +3,28 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Cliente extends Model
 {
-    protected $connection = 'tenant';
-    protected $table      = 'clientes';
+    protected $table = 'clientes';
 
     protected $fillable = [
-        'nombre', 'telefono', 'email', 'direccion',
-        'limite_credito', 'saldo_credito',
+        'sucursal_id', 'nombre', 'telefono', 'email', 'rfc_nit', 'direccion',
+        'limite_credito', 'saldo_credito', 'activo',
     ];
 
     protected $casts = [
         'limite_credito' => 'decimal:2',
         'saldo_credito'  => 'decimal:2',
+        'activo'         => 'boolean',
     ];
+
+    public function sucursal(): BelongsTo
+    {
+        return $this->belongsTo(Sucursal::class);
+    }
 
     public function ventas(): HasMany
     {

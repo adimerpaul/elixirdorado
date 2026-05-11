@@ -51,7 +51,7 @@ async function save() {
         if (editingId.value) {
             const { data } = await axios.put(`/api/admin/sucursales/${editingId.value}`, form.value);
             const idx = sucursales.value.findIndex(s => s.id === editingId.value);
-            if (idx >= 0) sucursales.value[idx] = data;
+            if (idx >= 0) sucursales.value.splice(idx, 1, data);
         } else {
             const { data } = await axios.post('/api/admin/sucursales', form.value);
             sucursales.value.push(data);
@@ -60,21 +60,31 @@ async function save() {
     } catch (e) {
         if (e.response?.status === 422)
             errors.value = e.response.data.errors ?? { general: [e.response.data.message] };
+        else
+            errors.value = { general: [e.response?.data?.message ?? 'Error al guardar.'] };
     } finally {
         saving.value = false;
     }
 }
 
 async function toggle(s) {
-    const { data } = await axios.patch(`/api/admin/sucursales/${s.id}/toggle`);
-    const idx = sucursales.value.findIndex(x => x.id === s.id);
-    if (idx >= 0) sucursales.value[idx] = data;
+    try {
+        const { data } = await axios.patch(`/api/admin/sucursales/${s.id}/toggle`);
+        const idx = sucursales.value.findIndex(x => x.id === s.id);
+        if (idx >= 0) sucursales.value.splice(idx, 1, data);
+    } catch (e) {
+        alert(e.response?.data?.message ?? 'Error al cambiar estado.');
+    }
 }
 
 async function remove(s) {
     if (!confirm(`¿Eliminar la sucursal "${s.nombre}"?\n\nLos datos se conservan (soft delete).`)) return;
-    await axios.delete(`/api/admin/sucursales/${s.id}`);
-    sucursales.value = sucursales.value.filter(x => x.id !== s.id);
+    try {
+        await axios.delete(`/api/admin/sucursales/${s.id}`);
+        sucursales.value = sucursales.value.filter(x => x.id !== s.id);
+    } catch (e) {
+        alert(e.response?.data?.message ?? 'Error al eliminar.');
+    }
 }
 
 onMounted(load);
@@ -89,13 +99,22 @@ onMounted(load);
         <h2 class="text-xl font-bold text-gray-800">Sucursales</h2>
         <p class="text-gray-400 text-xs mt-0.5">{{ sucursales.length }} sucursal(es) registrada(s)</p>
       </div>
-      <button @click="openCreate"
-        class="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs font-semibold transition-colors self-start sm:self-auto">
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-        </svg>
-        Nueva Sucursal
-      </button>
+      <div class="flex gap-2 self-start sm:self-auto">
+        <button @click="load"
+          class="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-2 rounded-lg text-xs font-semibold transition-colors">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/>
+          </svg>
+          Actualizar
+        </button>
+        <button @click="openCreate"
+          class="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs font-semibold transition-colors">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+          </svg>
+          Nueva Sucursal
+        </button>
+      </div>
     </div>
 
     <!-- Search -->

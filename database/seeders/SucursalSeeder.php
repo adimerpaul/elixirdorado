@@ -3,9 +3,10 @@
 namespace Database\Seeders;
 
 use App\Models\Sucursal;
+use App\Models\User;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 
 class SucursalSeeder extends Seeder
 {
@@ -24,34 +25,31 @@ class SucursalSeeder extends Seeder
 
     private function crearSucursal(string $nombre, string $slug): void
     {
-        $nombreBD = 'elixir_sucursal_' . str_replace('-', '_', $slug);
-
-        $this->command->info("Creando sucursal: {$nombre} ({$nombreBD})");
-
-        DB::statement("CREATE DATABASE IF NOT EXISTS `{$nombreBD}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        $this->command->info("Creando sucursal: {$nombre}");
 
         $sucursal = Sucursal::firstOrCreate(
             ['slug' => $slug],
-            ['nombre' => $nombre, 'base_datos' => $nombreBD, 'activa' => true]
+            ['nombre' => $nombre, 'activa' => true]
         );
 
-        config(['database.connections.tenant.database' => $nombreBD]);
-        DB::purge('tenant');
-        DB::reconnect('tenant');
+        // Admin user para cada sucursal
+        if (!User::where('sucursal_id', $sucursal->id)->exists()) {
+            User::create([
+                'name'        => 'Admin ' . $nombre,
+                'email'       => $slug . '@elixir.com',
+                'password'    => Hash::make('password'),
+                'rol'         => 'admin',
+                'sucursal_id' => $sucursal->id,
+            ]);
+        }
 
-        Artisan::call('migrate', [
-            '--path'     => 'database/migrations/tenant',
-            '--database' => 'tenant',
-            '--force'    => true,
-        ]);
+        $catMap = $this->seedCategorias($sucursal->id);
+        $this->seedProductos($sucursal->id, $catMap);
 
-        $this->seedCategorias($slug);
-        $this->seedProductos();
-
-        $this->command->info("  ✓ {$nombre}: " . DB::connection('tenant')->table('productos')->count() . " productos");
+        $this->command->info("  ✓ {$nombre}: " . DB::table('productos')->where('sucursal_id', $sucursal->id)->count() . " productos");
     }
 
-    private function seedCategorias(string $slug): array
+    private function seedCategorias(int $sucursalId): array
     {
         $nombres = [
             'AGUA', 'ALCOHOL', 'CERVEZA', 'CIGARRILLO', 'COCA',
@@ -63,14 +61,19 @@ class SucursalSeeder extends Seeder
         $now = now();
 
         foreach ($nombres as $n) {
-            $existing = DB::connection('tenant')->table('categorias')->where('nombre', $n)->first();
+            $existing = DB::table('categorias')
+                ->where('sucursal_id', $sucursalId)
+                ->where('nombre', $n)
+                ->first();
+
             if ($existing) {
                 $map[$n] = $existing->id;
             } else {
-                $map[$n] = DB::connection('tenant')->table('categorias')->insertGetId([
-                    'nombre'     => $n,
-                    'created_at' => $now,
-                    'updated_at' => $now,
+                $map[$n] = DB::table('categorias')->insertGetId([
+                    'sucursal_id' => $sucursalId,
+                    'nombre'      => $n,
+                    'created_at'  => $now,
+                    'updated_at'  => $now,
                 ]);
             }
         }
@@ -78,16 +81,10 @@ class SucursalSeeder extends Seeder
         return $map;
     }
 
-    private function seedProductos(): void
+    private function seedProductos(int $sucursalId, array $catMap): void
     {
-        // Skip if already seeded
-        if (DB::connection('tenant')->table('productos')->count() > 0) {
+        if (DB::table('productos')->where('sucursal_id', $sucursalId)->count() > 0) {
             return;
-        }
-
-        $catMap = [];
-        foreach (DB::connection('tenant')->table('categorias')->get() as $c) {
-            $catMap[$c->nombre] = $c->id;
         }
 
         $now = now();
@@ -283,6 +280,7 @@ class SucursalSeeder extends Seeder
         $rows = [];
         foreach ($productos as [$codigo, $nombre, $compra, $venta, $mayoreo, $cat, $min, $max]) {
             $rows[] = [
+                'sucursal_id'    => $sucursalId,
                 'codigo_barras'  => $codigo,
                 'nombre'         => $nombre,
                 'precio_compra'  => $compra,
@@ -299,7 +297,7 @@ class SucursalSeeder extends Seeder
         }
 
         foreach (array_chunk($rows, 50) as $chunk) {
-            DB::connection('tenant')->table('productos')->insert($chunk);
+            DB::table('productos')->insert($chunk);
         }
     }
 }

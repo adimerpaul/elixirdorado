@@ -7,8 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class DetalleVenta extends Model
 {
-    protected $connection = 'tenant';
-    protected $table      = 'detalle_ventas';
+    protected $table = 'detalle_ventas';
 
     protected $fillable = [
         'venta_id', 'producto_id',

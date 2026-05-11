@@ -3,14 +3,19 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Categoria extends Model
 {
-    protected $connection = 'tenant';
-    protected $table      = 'categorias';
+    protected $table = 'categorias';
 
-    protected $fillable = ['nombre'];
+    protected $fillable = ['sucursal_id', 'nombre'];
+
+    public function sucursal(): BelongsTo
+    {
+        return $this->belongsTo(Sucursal::class);
+    }
 
     public function productos(): HasMany
     {
