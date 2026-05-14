@@ -62,7 +62,7 @@ class ProductoController extends Controller
             'stock_actual'   => 0,
             'stock_minimo'   => $data['stock_minimo'] ?? 0,
             'stock_maximo'   => $data['stock_maximo'] ?? 100,
-            'activo'         => $data['activo'] ?? true,
+            'activo'         => $data['activo'] ? true : false,
         ]);
 
         return response()->json($producto->load('categoria:id,nombre'), 201);
@@ -82,7 +82,7 @@ class ProductoController extends Controller
             'precio_mayoreo' => 'nullable|numeric|min:0',
             'stock_minimo'   => 'nullable|integer|min:0',
             'stock_maximo'   => 'nullable|integer|min:0',
-            'activo'         => 'boolean',
+            'activo'         => 'nullable',
             'imagen'         => 'nullable|file|image|max:2048',
         ]);
 
@@ -93,6 +93,7 @@ class ProductoController extends Controller
             }
             $imagenPath = $request->file('imagen')->store("productos/{$sucursal->slug}", 'public');
         }
+        error_log('estado:' . $data['activo'] ?? 'null');
 
         $producto->update([
             'codigo_barras'  => $data['codigo_barras'] ?? null,
@@ -105,7 +106,7 @@ class ProductoController extends Controller
             'precio_mayoreo' => $data['precio_mayoreo'] ?? 0,
             'stock_minimo'   => $data['stock_minimo'] ?? 0,
             'stock_maximo'   => $data['stock_maximo'] ?? 100,
-            'activo'         => $data['activo'] ?? true,
+            'activo'         => $data['activo'] == 'true' ? true : false,
         ]);
 
         return response()->json($producto->load('categoria:id,nombre'));

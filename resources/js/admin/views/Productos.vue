@@ -17,6 +17,7 @@ const saving            = ref(false);
 const errors            = ref({});
 const imagePreview      = ref(null);
 const imageFile         = ref(null);
+const dragOver          = ref(false);
 
 const emptyForm = () => ({
     codigo_barras: '', nombre: '', descripcion: '', categoria_id: '',
@@ -101,11 +102,40 @@ function openEdit(p) {
     showModal.value   = true;
 }
 
-function onImageChange(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    imageFile.value    = file;
-    imagePreview.value = URL.createObjectURL(file);
+function compressImage(file, maxW = 800, maxH = 800, quality = 0.82) {
+    return new Promise(resolve => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            let { width, height } = img;
+            const ratio = Math.min(maxW / width, maxH / height, 1);
+            width  = Math.round(width  * ratio);
+            height = Math.round(height * ratio);
+            const canvas = document.createElement('canvas');
+            canvas.width  = width;
+            canvas.height = height;
+            canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+            canvas.toBlob(blob => resolve(new File([blob], file.name, { type: 'image/jpeg' })), 'image/jpeg', quality);
+        };
+        img.src = url;
+    });
+}
+
+async function setImageFile(file) {
+    if (!file || !file.type.startsWith('image/')) return;
+    const compressed   = await compressImage(file);
+    imageFile.value    = compressed;
+    imagePreview.value = URL.createObjectURL(compressed);
+}
+
+async function onImageChange(e) {
+    await setImageFile(e.target.files[0]);
+}
+
+async function onDrop(e) {
+    dragOver.value = false;
+    await setImageFile(e.dataTransfer.files[0]);
 }
 
 function clearImage() {
@@ -329,24 +359,35 @@ const fmtBs = v => v != null ? `Bs ${parseFloat(v).toFixed(2)}` : '—';
           <!-- Imagen -->
           <div>
             <label class="block text-xs font-semibold text-gray-600 mb-1">Imagen del producto</label>
-            <div class="flex items-center gap-3">
-              <div class="w-16 h-16 rounded-xl overflow-hidden bg-gray-100 flex items-center justify-center flex-shrink-0 border border-gray-200">
-                <img v-if="imagePreview" :src="imagePreview" alt="" class="w-full h-full object-cover">
-                <svg v-else class="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <input id="imagen-input" type="file" accept="image/*" @change="onImageChange" class="hidden">
+            <div
+              @click="document.getElementById('imagen-input').click()"
+              @dragover.prevent="dragOver = true"
+              @dragleave.prevent="dragOver = false"
+              @drop.prevent="onDrop"
+              :class="[
+                'flex flex-col items-center justify-center w-full rounded-xl border-2 border-dashed cursor-pointer transition-colors relative overflow-hidden select-none',
+                dragOver ? 'border-blue-400 bg-blue-50' : 'border-gray-200 bg-gray-50 hover:border-blue-300 hover:bg-blue-50/40',
+                imagePreview ? 'h-36' : 'h-24'
+              ]">
+              <!-- Preview -->
+              <img v-if="imagePreview" :src="imagePreview" alt="" class="absolute inset-0 w-full h-full object-contain p-1 pointer-events-none">
+              <!-- Overlay -->
+              <div v-if="imagePreview"
+                class="absolute inset-0 bg-black/0 hover:bg-black/30 transition-colors flex items-center justify-center group">
+                <span class="opacity-0 group-hover:opacity-100 text-white text-xs font-semibold">Cambiar imagen</span>
+              </div>
+              <!-- Empty state -->
+              <template v-if="!imagePreview">
+                <svg class="w-7 h-7 text-gray-300 mb-1" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/>
                 </svg>
-              </div>
-              <div class="flex-1 min-w-0">
-                <input id="imagen-input" type="file" accept="image/*" @change="onImageChange" class="hidden">
-                <label for="imagen-input"
-                  class="inline-block cursor-pointer px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold transition-colors">
-                  Seleccionar imagen
-                </label>
-                <button v-if="imagePreview" type="button" @click="clearImage"
-                  class="ml-2 text-xs text-red-500 hover:text-red-700">Quitar</button>
-                <p class="text-gray-400 text-xs mt-1">JPG, PNG · máx 2 MB</p>
-              </div>
+                <p class="text-xs text-gray-400"><span class="text-blue-500 font-semibold">Seleccionar</span> o arrastrar imagen</p>
+                <p class="text-gray-300 text-xs">JPG, PNG · máx 2 MB xxxxxxxxxxxxxxxxxx</p>
+              </template>
             </div>
+            <button v-if="imagePreview" type="button" @click="clearImage"
+              class="mt-1 text-xs text-red-500 hover:text-red-700">Quitar imagen</button>
           </div>
 
           <!-- Código + Nombre -->
