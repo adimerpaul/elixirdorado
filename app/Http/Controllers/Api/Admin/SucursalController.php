@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Spatie\Permission\Models\Permission;
 
 class SucursalController extends Controller
 {
@@ -52,6 +53,8 @@ class SucursalController extends Controller
                 'rol'         => 'admin',
                 'sucursal_id' => $sucursal->id,
             ]);
+
+            Permission::firstOrCreate(['name' => "sucursal.{$sucursal->id}", 'guard_name' => 'web']);
 
             DB::commit();
             return response()->json($sucursal, 201);

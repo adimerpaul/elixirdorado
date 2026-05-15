@@ -23,6 +23,7 @@ class UserController extends Controller
                 'email'    => $u->email,
                 'rol'      => $u->rol,
                 'sucursal' => $u->sucursal,
+                'permisos' => $u->getAllPermissions()->pluck('name')->values(),
             ]);
 
         return response()->json([
@@ -40,6 +41,8 @@ class UserController extends Controller
             'password'    => 'required|string',
             'rol'         => 'required|in:super_admin,admin,cajero',
             'sucursal_id' => 'nullable|exists:sucursales,id',
+            'permisos'    => 'nullable|array',
+            'permisos.*'  => 'string|exists:permissions,name',
         ]);
 
         $user = User::create([
@@ -51,12 +54,22 @@ class UserController extends Controller
             'sucursal_id' => $data['sucursal_id'] ?? null,
         ]);
 
-        return response()->json($user->load('sucursal:id,nombre,slug'), 201);
+        if ($data['rol'] !== 'super_admin') {
+            $user->syncPermissions($data['permisos'] ?? []);
+        }
+
+        return response()->json(array_merge(
+            $user->load('sucursal:id,nombre,slug')->toArray(),
+            ['permisos' => $user->getAllPermissions()->pluck('name')->values()]
+        ), 201);
     }
 
     public function show(User $user)
     {
-        return response()->json($user->load('sucursal:id,nombre,slug'));
+        return response()->json(array_merge(
+            $user->load('sucursal:id,nombre,slug')->toArray(),
+            ['permisos' => $user->getAllPermissions()->pluck('name')->values()]
+        ));
     }
 
     public function update(Request $request, User $user)
@@ -68,6 +81,8 @@ class UserController extends Controller
             'password'    => 'nullable|string',
             'rol'         => 'required|in:super_admin,admin,cajero',
             'sucursal_id' => 'nullable|exists:sucursales,id',
+            'permisos'    => 'nullable|array',
+            'permisos.*'  => 'string|exists:permissions,name',
         ]);
 
         $user->update([
@@ -76,10 +91,19 @@ class UserController extends Controller
             'email'       => $data['email'],
             'rol'         => $data['rol'],
             'sucursal_id' => $data['sucursal_id'] ?? null,
-            ...($data['password'] ? ['password' => Hash::make($data['password'])] : []),
+            ...( ($data['password'] ?? null) ? ['password' => Hash::make($data['password'])] : []),
         ]);
 
-        return response()->json($user->load('sucursal:id,nombre,slug'));
+        if ($data['rol'] !== 'super_admin') {
+            $user->syncPermissions($data['permisos'] ?? []);
+        } else {
+            $user->syncPermissions([]);
+        }
+
+        return response()->json(array_merge(
+            $user->load('sucursal:id,nombre,slug')->toArray(),
+            ['permisos' => $user->getAllPermissions()->pluck('name')->values()]
+        ));
     }
 
     public function destroy(User $user)

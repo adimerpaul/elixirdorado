@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import axios from 'axios';
 import DropdownMenu from '../components/DropdownMenu.vue';
 
@@ -19,7 +19,12 @@ const rolColors = {
 };
 const rolLabel = r => ({ super_admin: 'Super Admin', admin: 'Admin', cajero: 'Cajero' }[r] ?? r);
 
-const form = ref({ name: '', nickname: '', email: '', password: '', rol: 'cajero', sucursal_id: '' });
+const emptyForm = () => ({
+    name: '', nickname: '', email: '', password: '',
+    rol: 'cajero', sucursal_id: '',
+    permisos: [],
+});
+const form = ref(emptyForm());
 
 const filtered = computed(() =>
     users.value.filter(u =>
@@ -28,6 +33,18 @@ const filtered = computed(() =>
         (u.nickname ?? '').toLowerCase().includes(search.value.toLowerCase())
     )
 );
+
+const esSuperAdmin = computed(() => form.value.rol === 'super_admin');
+
+// Toggle a permission in the form array
+function togglePerm(name) {
+    const idx = form.value.permisos.indexOf(name);
+    if (idx >= 0) form.value.permisos.splice(idx, 1);
+    else form.value.permisos.push(name);
+}
+function hasPerm(name) {
+    return form.value.permisos.includes(name);
+}
 
 async function load() {
     loading.value = true;
@@ -39,14 +56,22 @@ async function load() {
 
 function openCreate() {
     editingId.value = null;
-    form.value      = { name: '', nickname: '', email: '', password: '', rol: 'cajero', sucursal_id: '' };
+    form.value      = emptyForm();
     errors.value    = {};
     showModal.value = true;
 }
 
 function openEdit(u) {
     editingId.value = u.id;
-    form.value      = { name: u.name, nickname: u.nickname ?? '', email: u.email, password: '', rol: u.rol, sucursal_id: u.sucursal?.id ?? '' };
+    form.value = {
+        name:        u.name,
+        nickname:    u.nickname ?? '',
+        email:       u.email,
+        password:    '',
+        rol:         u.rol,
+        sucursal_id: u.sucursal?.id ?? '',
+        permisos:    u.permisos ? [...u.permisos] : [],
+    };
     errors.value    = {};
     showModal.value = true;
 }
@@ -54,7 +79,11 @@ function openEdit(u) {
 async function save() {
     saving.value = true;
     errors.value = {};
-    const payload = { ...form.value, sucursal_id: form.value.sucursal_id || null };
+    const payload = {
+        ...form.value,
+        sucursal_id: form.value.sucursal_id || null,
+        permisos:    esSuperAdmin.value ? [] : form.value.permisos,
+    };
     if (editingId.value && !payload.password) delete payload.password;
     try {
         if (editingId.value) {
@@ -86,6 +115,21 @@ async function remove(u) {
 
 const displayName = u => u.nickname || u.name;
 const initials    = u => u.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+
+const permLabels = {
+    dashboard:  'Dashboard',
+    sucursales: 'Sucursales',
+    usuarios:   'Usuarios',
+};
+function permLabel(name) {
+    if (permLabels[name]) return permLabels[name];
+    if (name.startsWith('sucursal.')) {
+        const id = name.split('.')[1];
+        const s  = sucursales.value.find(s => s.id == id);
+        return s ? s.nombre : name;
+    }
+    return name;
+}
 
 onMounted(load);
 </script>
@@ -137,15 +181,14 @@ onMounted(load);
             <th class="px-3 py-2 text-left font-semibold tracking-wide hidden sm:table-cell">Email</th>
             <th class="px-3 py-2 text-center font-semibold tracking-wide">Rol</th>
             <th class="px-3 py-2 text-left font-semibold tracking-wide hidden lg:table-cell">Sucursal</th>
+            <th class="px-3 py-2 text-left font-semibold tracking-wide">Permisos</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="filtered.length === 0">
-            <td colspan="5" class="px-4 py-10 text-center text-gray-400 text-xs">No hay usuarios registrados.</td>
+            <td colspan="6" class="px-4 py-10 text-center text-gray-400 text-xs">No hay usuarios registrados.</td>
           </tr>
-          <tr v-for="u in filtered" :key="u.id"
-              class="border-t border-gray-50 hover:bg-blue-50/30 transition-colors">
-            <!-- Dropdown acciones -->
+          <tr v-for="u in filtered" :key="u.id" class="border-t border-gray-50 hover:bg-blue-50/30 transition-colors">
             <td class="px-3 py-1.5">
               <DropdownMenu>
                 <button @click="openEdit(u)"
@@ -165,7 +208,6 @@ onMounted(load);
                 </button>
               </DropdownMenu>
             </td>
-
             <td class="px-3 py-1.5">
               <div class="flex items-center gap-2">
                 <div class="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
@@ -185,6 +227,19 @@ onMounted(load);
               </span>
             </td>
             <td class="px-3 py-1.5 text-gray-500 hidden lg:table-cell">{{ u.sucursal?.nombre ?? '—' }}</td>
+            <td class="px-3 py-1.5">
+              <div v-if="u.rol === 'super_admin'" class="flex flex-wrap gap-1">
+                <span class="px-1.5 py-0.5 rounded text-xs font-semibold bg-purple-100 text-purple-700">Todo</span>
+              </div>
+              <div v-else-if="!u.permisos?.length" class="text-gray-400 text-xs">Sin permisos</div>
+              <div v-else class="flex flex-wrap gap-1">
+                <span v-for="p in u.permisos" :key="p"
+                  :class="['px-1.5 py-0.5 rounded text-xs font-semibold',
+                    p.startsWith('sucursal.') ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700']">
+                  {{ permLabel(p) }}
+                </span>
+              </div>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -195,7 +250,7 @@ onMounted(load);
     <div v-if="showModal"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       @click.self="showModal = false">
-      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
 
         <div class="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white rounded-t-2xl">
           <h3 class="font-bold text-gray-800 text-sm">{{ editingId ? 'Editar Usuario' : 'Nuevo Usuario' }}</h3>
@@ -207,13 +262,14 @@ onMounted(load);
           </button>
         </div>
 
-        <form @submit.prevent="save" class="px-5 py-4 space-y-3">
+        <form @submit.prevent="save" class="px-5 py-4 space-y-4">
 
           <div v-if="errors.general"
             class="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl px-3 py-2">
             {{ errors.general[0] }}
           </div>
 
+          <!-- Nombre + Nickname -->
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="block text-xs font-semibold text-gray-600 mb-1">Nombre completo *</label>
@@ -225,10 +281,10 @@ onMounted(load);
               <label class="block text-xs font-semibold text-gray-600 mb-1">Nickname</label>
               <input v-model="form.nickname" type="text" placeholder="Ej: Juancho"
                 class="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <p v-if="errors.nickname" class="text-red-500 text-xs mt-0.5">{{ errors.nickname[0] }}</p>
             </div>
           </div>
 
+          <!-- Email -->
           <div>
             <label class="block text-xs font-semibold text-gray-600 mb-1">Email *</label>
             <input v-model="form.email" type="email" required placeholder="usuario@ejemplo.com"
@@ -236,6 +292,7 @@ onMounted(load);
             <p v-if="errors.email" class="text-red-500 text-xs mt-0.5">{{ errors.email[0] }}</p>
           </div>
 
+          <!-- Contraseña -->
           <div>
             <label class="block text-xs font-semibold text-gray-600 mb-1">
               {{ editingId ? 'Nueva contraseña (vacío = sin cambios)' : 'Contraseña *' }}
@@ -245,6 +302,7 @@ onMounted(load);
             <p v-if="errors.password" class="text-red-500 text-xs mt-0.5">{{ errors.password[0] }}</p>
           </div>
 
+          <!-- Rol + Sucursal -->
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="block text-xs font-semibold text-gray-600 mb-1">Rol *</label>
@@ -265,6 +323,61 @@ onMounted(load);
             </div>
           </div>
 
+          <!-- PERMISOS -->
+          <div class="border border-gray-100 rounded-xl p-3 space-y-3">
+            <div class="flex items-center justify-between">
+              <p class="text-xs font-bold text-gray-700 uppercase tracking-wide">Permisos</p>
+              <span v-if="esSuperAdmin" class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-semibold">
+                Super Admin — acceso total
+              </span>
+            </div>
+
+            <div :class="esSuperAdmin ? 'opacity-40 pointer-events-none select-none' : ''">
+
+              <!-- Módulos globales -->
+              <div class="mb-3">
+                <p class="text-xs font-semibold text-gray-500 mb-1.5">Módulos del sistema</p>
+                <div class="space-y-1.5">
+                  <div v-for="p in [
+                      { name: 'dashboard',  label: 'Dashboard' },
+                      { name: 'sucursales', label: 'Gestión de Sucursales' },
+                      { name: 'usuarios',   label: 'Gestión de Usuarios' },
+                    ]" :key="p.name"
+                    class="flex items-center gap-2 cursor-pointer group"
+                    @click="togglePerm(p.name)">
+                    <div :class="['w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors',
+                      hasPerm(p.name) ? 'bg-blue-600 border-blue-600' : 'border-gray-300 group-hover:border-blue-400']">
+                      <svg v-if="hasPerm(p.name)" class="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/>
+                      </svg>
+                    </div>
+                    <span class="text-xs text-gray-700 select-none">{{ p.label }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Acceso a sucursales -->
+              <div v-if="sucursales.length">
+                <p class="text-xs font-semibold text-gray-500 mb-1.5">Acceso a sucursales</p>
+                <div class="space-y-1.5">
+                  <div v-for="s in sucursales" :key="s.id"
+                    class="flex items-center gap-2 cursor-pointer group"
+                    @click="togglePerm(`sucursal.${s.id}`)">
+                    <div :class="['w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors',
+                      hasPerm(`sucursal.${s.id}`) ? 'bg-amber-500 border-amber-500' : 'border-gray-300 group-hover:border-amber-400']">
+                      <svg v-if="hasPerm(`sucursal.${s.id}`)" class="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/>
+                      </svg>
+                    </div>
+                    <span class="text-xs text-gray-700 select-none">{{ s.nombre }}</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Buttons -->
           <div class="flex gap-2 pt-1">
             <button type="submit" :disabled="saving"
               class="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white py-2 rounded-lg text-xs font-semibold transition-colors">
