@@ -18,6 +18,8 @@ Route::apiResource('users', UserController::class);
 
 Route::prefix('sucursales/{sucursal}')->group(function () {
     Route::get('productos',          [ProductoController::class, 'index']);
+    Route::get('productos/export/excel', [ProductoController::class, 'exportExcel']);
+    Route::get('productos/export/pdf',   [ProductoController::class, 'exportPdf']);
     Route::post('productos',         [ProductoController::class, 'store']);
     Route::post('productos/{id}',    [ProductoController::class, 'update']);
     Route::delete('productos/{id}',  [ProductoController::class, 'destroy']);

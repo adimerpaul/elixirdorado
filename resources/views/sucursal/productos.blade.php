@@ -3,9 +3,32 @@
 @section('content')
 <div class="section-bar flex items-center justify-between">
     <span class="font-bold text-blue-900 text-lg">F3 - PRODUCTOS</span>
-    <button onclick="abrirModalNuevo()" class="btn-primary text-sm">
-        <i class="fas fa-plus mr-1"></i> Agregar Producto
-    </button>
+    <div class="flex gap-2 flex-wrap justify-end">
+        <details class="relative">
+            <summary class="btn-secondary text-sm cursor-pointer list-none">
+                <i class="fas fa-download mr-1 text-blue-600"></i>Exportar
+                <i class="fas fa-chevron-down ml-1 text-gray-400"></i>
+            </summary>
+            <div class="absolute right-0 mt-2 w-52 bg-white rounded-xl shadow-xl border border-gray-100 py-1 z-50">
+                <a href="/{{ $sucursal->slug }}/productos/export/excel?scope=existing" class="flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50">
+                    <i class="fas fa-file-excel text-green-600 w-4"></i>Excel existentes
+                </a>
+                <a href="/{{ $sucursal->slug }}/productos/export/pdf?scope=existing" class="flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50">
+                    <i class="fas fa-file-pdf text-red-600 w-4"></i>PDF existentes
+                </a>
+                <div class="border-t border-gray-100 my-1"></div>
+                <a href="/{{ $sucursal->slug }}/productos/export/excel?scope=all" class="flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50">
+                    <i class="fas fa-file-excel text-green-600 w-4"></i>Excel todo
+                </a>
+                <a href="/{{ $sucursal->slug }}/productos/export/pdf?scope=all" class="flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50">
+                    <i class="fas fa-file-pdf text-red-600 w-4"></i>PDF todo
+                </a>
+            </div>
+        </details>
+        <button onclick="abrirModalNuevo()" class="btn-primary text-sm">
+            <i class="fas fa-plus mr-1"></i> Agregar Producto
+        </button>
+    </div>
 </div>
 
 <div class="p-4" style="padding-bottom:60px;">
@@ -45,7 +68,7 @@
                     <th class="text-left p-3">Categoría</th>
                     <th class="text-right p-3">Precio Compra</th>
                     <th class="text-right p-3">Precio Venta</th>
-                    <th class="text-center p-3">Stock</th>
+                    <th class="text-center p-3">Cantidad</th>
                     <th class="text-center p-3">Stock Mín.</th>
                     <th class="text-center p-3">Estado</th>
                     <th class="text-center p-3">Activo</th>
@@ -75,8 +98,8 @@
                     </td>
                     <td class="p-3 text-right text-gray-700">Bs. {{ number_format($prod->precio_compra ?? 0, 2) }}</td>
                     <td class="p-3 text-right font-bold text-green-700">Bs. {{ number_format($prod->precio_venta, 2) }}</td>
-                    <td class="p-3 text-center font-bold {{ $prod->stock_actual <= ($prod->stock_minimo ?? 5) ? 'text-red-600' : 'text-gray-800' }}">
-                        {{ $prod->stock_actual }}
+                    <td class="p-3 text-center font-bold text-gray-800">
+                        {{ (int) ($prod->cantidad_compras_activas ?? 0) }}
                     </td>
                     <td class="p-3 text-center text-gray-500">{{ $prod->stock_minimo ?? 5 }}</td>
                     <td class="p-3 text-center">
@@ -335,9 +358,9 @@ function toggleActivo(id, btn) {
 
         // Actualizar badge de estado
         const badge = row.querySelector('td:nth-child(9) span');
-        if (badge && !data.activo) {
-            badge.className = 'badge-red';
-            badge.textContent = 'Inactivo';
+        if (badge) {
+            badge.className = data.activo ? 'badge-green' : 'badge-red';
+            badge.textContent = data.activo ? 'Activo' : 'Inactivo';
         }
 
         // Actualizar nombre (tachado o no)

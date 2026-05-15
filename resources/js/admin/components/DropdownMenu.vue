@@ -1,6 +1,10 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick } from 'vue';
 
+defineProps({
+    label: { type: String, default: 'Opciones' },
+});
+
 const open       = ref(false);
 const trigger    = ref(null);
 const menuStyle  = ref({});
@@ -55,7 +59,7 @@ onUnmounted(() => {
           : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100 hover:border-gray-300 hover:text-gray-800'
       ]"
     >
-      Opciones
+      {{ label }}
       <svg
         class="w-3 h-3 transition-transform"
         :class="open ? 'rotate-180' : ''"

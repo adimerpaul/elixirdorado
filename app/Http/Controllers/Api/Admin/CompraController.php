@@ -50,11 +50,12 @@ class CompraController extends Controller
             'items.*.producto_id'    => 'required|integer|exists:productos,id',
             'items.*.cantidad'       => 'required|integer|min:1',
             'items.*.precio_unitario' => 'required|numeric|min:0',
+            'items.*.precio_total'    => 'nullable|numeric|min:0',
         ]);
 
         DB::transaction(function () use ($data, $sucursal, $request) {
             $total = collect($data['items'])->sum(
-                fn($i) => $i['cantidad'] * $i['precio_unitario']
+                fn($i) => $i['precio_total'] ?? ($i['cantidad'] * $i['precio_unitario'])
             );
 
             $compra = Compra::create([
@@ -68,12 +69,14 @@ class CompraController extends Controller
             ]);
 
             foreach ($data['items'] as $item) {
+                $precioTotal = $item['precio_total'] ?? ($item['cantidad'] * $item['precio_unitario']);
+
                 DetalleCompra::create([
                     'compra_id'       => $compra->id,
                     'producto_id'     => $item['producto_id'],
                     'cantidad'        => $item['cantidad'],
                     'precio_unitario' => $item['precio_unitario'],
-                    'precio_total'    => $item['cantidad'] * $item['precio_unitario'],
+                    'precio_total'    => $precioTotal,
                 ]);
 
                 Producto::where('id', $item['producto_id'])

@@ -2,19 +2,21 @@
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Exports\ProductosExport;
 use App\Http\Controllers\Controller;
 use App\Models\Categoria;
 use App\Models\Producto;
 use App\Models\Sucursal;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Maatwebsite\Excel\Facades\Excel;
 
 class ProductoController extends Controller
 {
     public function index(Sucursal $sucursal)
     {
-        $productos  = Producto::with('categoria:id,nombre')
-            ->where('sucursal_id', $sucursal->id)
+        $productos  = $this->productosConCantidadActiva($sucursal)
             ->orderBy('nombre')
             ->get();
 
@@ -40,7 +42,7 @@ class ProductoController extends Controller
             'precio_mayoreo' => 'nullable|numeric|min:0',
             'stock_minimo'   => 'nullable|integer|min:0',
             'stock_maximo'   => 'nullable|integer|min:0',
-            'activo'         => 'boolean',
+            'activo'         => 'nullable',
             'imagen'         => 'nullable|file|image|max:2048',
         ]);
 
@@ -62,10 +64,10 @@ class ProductoController extends Controller
             'stock_actual'   => 0,
             'stock_minimo'   => $data['stock_minimo'] ?? 0,
             'stock_maximo'   => $data['stock_maximo'] ?? 100,
-            'activo'         => $data['activo'] ? true : false,
+            'activo'         => $request->boolean('activo', true),
         ]);
 
-        return response()->json($producto->load('categoria:id,nombre'), 201);
+        return response()->json($this->productoConCantidadActiva($producto->id), 201);
     }
 
     public function update(Request $request, Sucursal $sucursal, int $id)
@@ -93,8 +95,6 @@ class ProductoController extends Controller
             }
             $imagenPath = $request->file('imagen')->store("productos/{$sucursal->slug}", 'public');
         }
-        error_log('estado:' . $data['activo'] ?? 'null');
-
         $producto->update([
             'codigo_barras'  => $data['codigo_barras'] ?? null,
             'nombre'         => $data['nombre'],
@@ -106,10 +106,10 @@ class ProductoController extends Controller
             'precio_mayoreo' => $data['precio_mayoreo'] ?? 0,
             'stock_minimo'   => $data['stock_minimo'] ?? 0,
             'stock_maximo'   => $data['stock_maximo'] ?? 100,
-            'activo'         => $data['activo'] == 'true' ? true : false,
+            'activo'         => $request->has('activo') ? $request->boolean('activo') : $producto->activo,
         ]);
 
-        return response()->json($producto->load('categoria:id,nombre'));
+        return response()->json($this->productoConCantidadActiva($producto->id));
     }
 
     public function destroy(Sucursal $sucursal, int $id)
@@ -123,5 +123,56 @@ class ProductoController extends Controller
         $producto->delete();
 
         return response()->json(null, 204);
+    }
+
+    public function exportExcel(Request $request, Sucursal $sucursal)
+    {
+        $scope = $request->query('scope') === 'existing' ? 'existing' : 'all';
+        $productos = $this->productosConCantidadActiva($sucursal, $scope)->orderBy('nombre')->get();
+        $filename = "productos-{$sucursal->slug}-{$scope}.xlsx";
+
+        return Excel::download(new ProductosExport($productos), $filename);
+    }
+
+    public function exportPdf(Request $request, Sucursal $sucursal)
+    {
+        $scope = $request->query('scope') === 'existing' ? 'existing' : 'all';
+        $productos = $this->productosConCantidadActiva($sucursal, $scope)->orderBy('nombre')->get();
+        $filename = "productos-{$sucursal->slug}-{$scope}.pdf";
+
+        return Pdf::loadView('exports.productos-pdf', [
+            'productos' => $productos,
+            'sucursal' => $sucursal,
+            'scope' => $scope,
+        ])->setPaper('letter', 'landscape')->download($filename);
+    }
+
+    private function productoConCantidadActiva(int $id): Producto
+    {
+        return $this->productosConCantidadActiva()->findOrFail($id);
+    }
+
+    private function productosConCantidadActiva(?Sucursal $sucursal = null, string $scope = 'all')
+    {
+        $query = Producto::with('categoria:id,nombre')
+            ->withSum([
+                'detalleCompras as cantidad_compras_activas' => fn($q) => $q->whereHas(
+                    'compra',
+                    fn($compra) => $compra->where('estado', 'activa')
+                ),
+            ], 'cantidad');
+
+        if ($sucursal) {
+            $query->where('sucursal_id', $sucursal->id);
+        }
+
+        if ($scope === 'existing') {
+            $query->whereHas('detalleCompras', fn($q) => $q->whereHas(
+                'compra',
+                fn($compra) => $compra->where('estado', 'activa')
+            ));
+        }
+
+        return $query;
     }
 }

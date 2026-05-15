@@ -7,6 +7,9 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use App\Exports\ProductosExport;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Maatwebsite\Excel\Facades\Excel;
 
 // ============================================
 // TIENDA PÚBLICA (sin autenticación)
@@ -602,10 +605,56 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/{slug}/productos', function ($slug) {
         $sucursal = Sucursal::where('slug', $slug)->firstOrFail();
-        $productos  = DB::table('productos')->where('sucursal_id', $sucursal->id)->get();
+        $comprasActivas = DB::table('detalle_compras')
+            ->join('compras', 'detalle_compras.compra_id', '=', 'compras.id')
+            ->select('detalle_compras.producto_id', DB::raw('SUM(detalle_compras.cantidad) as cantidad_compras_activas'))
+            ->where('compras.sucursal_id', $sucursal->id)
+            ->where('compras.estado', 'activa')
+            ->whereNull('compras.deleted_at')
+            ->groupBy('detalle_compras.producto_id');
+
+        $productos  = DB::table('productos')
+            ->leftJoinSub($comprasActivas, 'compras_activas', function ($join) {
+                $join->on('productos.id', '=', 'compras_activas.producto_id');
+            })
+            ->where('productos.sucursal_id', $sucursal->id)
+            ->select('productos.*', DB::raw('COALESCE(compras_activas.cantidad_compras_activas, 0) as cantidad_compras_activas'))
+            ->get();
         $categorias = DB::table('categorias')->where('sucursal_id', $sucursal->id)->get();
         return view('sucursal.productos', compact('sucursal', 'productos', 'categorias'));
     })->name('sucursal.productos');
+
+    Route::get('/{slug}/productos/export/{format}', function ($slug, $format) {
+        abort_unless(in_array($format, ['excel', 'pdf'], true), 404);
+
+        $sucursal = Sucursal::where('slug', $slug)->firstOrFail();
+        $scope = request('scope') === 'existing' ? 'existing' : 'all';
+
+        $productos = \App\Models\Producto::with('categoria:id,nombre')
+            ->withSum([
+                'detalleCompras as cantidad_compras_activas' => fn($q) => $q->whereHas(
+                    'compra',
+                    fn($compra) => $compra->where('estado', 'activa')
+                ),
+            ], 'cantidad')
+            ->where('sucursal_id', $sucursal->id)
+            ->when($scope === 'existing', fn($q) => $q->whereHas('detalleCompras', fn($detalle) => $detalle->whereHas(
+                'compra',
+                fn($compra) => $compra->where('estado', 'activa')
+            )))
+            ->orderBy('nombre')
+            ->get();
+
+        if ($format === 'excel') {
+            return Excel::download(new ProductosExport($productos), "productos-{$sucursal->slug}-{$scope}.xlsx");
+        }
+
+        return Pdf::loadView('exports.productos-pdf', [
+            'productos' => $productos,
+            'sucursal' => $sucursal,
+            'scope' => $scope,
+        ])->setPaper('letter', 'landscape')->download("productos-{$sucursal->slug}-{$scope}.pdf");
+    })->name('sucursal.productos.export');
 
     Route::patch('/{slug}/productos/{id}/toggle', function ($slug, $id) {
         $sucursal = Sucursal::where('slug', $slug)->firstOrFail();

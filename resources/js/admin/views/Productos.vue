@@ -42,6 +42,11 @@ const filtered = computed(() => {
 
 const imageUrl = (p) => p.imagen ? `/storage/${p.imagen}` : null;
 
+const exportUrl = (format, scope) =>
+    selectedSucursal.value
+        ? `/api/admin/sucursales/${selectedSucursal.value}/productos/export/${format}?scope=${scope}`
+        : '#';
+
 // ── Load ───────────────────────────────────────────────────────
 async function loadSucursales() {
     const { data } = await axios.get('/api/admin/sucursales');
@@ -205,13 +210,44 @@ const fmtBs = v => v != null ? `Bs ${parseFloat(v).toFixed(2)}` : '—';
         <h2 class="text-xl font-bold text-gray-800">Productos</h2>
         <p class="text-gray-400 text-xs mt-0.5">{{ filtered.length }} de {{ productos.length }} producto(s)</p>
       </div>
-      <button @click="openCreate" :disabled="!selectedSucursal"
-        class="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-xs font-semibold transition-colors self-start sm:self-auto">
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-        </svg>
-        Nuevo Producto
-      </button>
+      <div class="flex flex-wrap gap-1.5 self-start sm:self-auto">
+        <DropdownMenu label="Exportar">
+          <a :href="exportUrl('excel', 'existing')" :class="['flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-50 transition-colors', selectedSucursal ? 'text-gray-700' : 'pointer-events-none text-gray-400']">
+            <svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M7.5 9l4.5 4.5L16.5 9M12 3v10.5"/>
+            </svg>
+            Excel existentes
+          </a>
+          <a :href="exportUrl('pdf', 'existing')" :class="['flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-50 transition-colors', selectedSucursal ? 'text-gray-700' : 'pointer-events-none text-gray-400']">
+            <svg class="w-3.5 h-3.5 text-red-600" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5A3.375 3.375 0 0 0 10.125 2.25H6.75A2.25 2.25 0 0 0 4.5 4.5v15A2.25 2.25 0 0 0 6.75 21h10.5a2.25 2.25 0 0 0 2.25-2.25"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 2.25 19.5 8.25"/>
+            </svg>
+            PDF existentes
+          </a>
+          <div class="border-t border-gray-100 my-0.5"/>
+          <a :href="exportUrl('excel', 'all')" :class="['flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-50 transition-colors', selectedSucursal ? 'text-gray-700' : 'pointer-events-none text-gray-400']">
+            <svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M7.5 9l4.5 4.5L16.5 9M12 3v10.5"/>
+            </svg>
+            Excel todo
+          </a>
+          <a :href="exportUrl('pdf', 'all')" :class="['flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-50 transition-colors', selectedSucursal ? 'text-gray-700' : 'pointer-events-none text-gray-400']">
+            <svg class="w-3.5 h-3.5 text-red-600" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5A3.375 3.375 0 0 0 10.125 2.25H6.75A2.25 2.25 0 0 0 4.5 4.5v15A2.25 2.25 0 0 0 6.75 21h10.5a2.25 2.25 0 0 0 2.25-2.25"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 2.25 19.5 8.25"/>
+            </svg>
+            PDF todo
+          </a>
+        </DropdownMenu>
+        <button @click="openCreate" :disabled="!selectedSucursal"
+          class="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-xs font-semibold transition-colors">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+          </svg>
+          Nuevo Producto
+        </button>
+      </div>
     </div>
 
     <!-- Sucursal tabs -->
@@ -252,13 +288,14 @@ const fmtBs = v => v != null ? `Bs ${parseFloat(v).toFixed(2)}` : '—';
     <!-- Table -->
     <div v-else class="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-100">
       <div class="overflow-x-auto">
-        <table class="w-full text-xs min-w-[700px]">
+        <table class="w-full text-xs min-w-[780px]">
           <thead class="bg-gray-50 text-gray-400 uppercase border-b border-gray-100">
             <tr>
               <th class="px-3 py-2 text-left font-semibold tracking-wide w-24">Acciones</th>
               <th class="px-3 py-2 text-left font-semibold tracking-wide w-8"></th>
               <th class="px-3 py-2 text-left font-semibold tracking-wide">Producto</th>
               <th class="px-3 py-2 text-left font-semibold tracking-wide hidden md:table-cell">Categoría</th>
+              <th class="px-3 py-2 text-center font-semibold tracking-wide">Cantidad</th>
               <th class="px-3 py-2 text-right font-semibold tracking-wide">P. Venta</th>
               <th class="px-3 py-2 text-right font-semibold tracking-wide hidden lg:table-cell">P. Mayoreo</th>
               <th class="px-3 py-2 text-right font-semibold tracking-wide hidden lg:table-cell">P. Costo</th>
@@ -268,7 +305,7 @@ const fmtBs = v => v != null ? `Bs ${parseFloat(v).toFixed(2)}` : '—';
           </thead>
           <tbody>
             <tr v-if="filtered.length === 0">
-              <td colspan="9" class="px-4 py-10 text-center text-gray-400">No hay productos.</td>
+              <td colspan="10" class="px-4 py-10 text-center text-gray-400">No hay productos.</td>
             </tr>
             <tr v-for="p in filtered" :key="p.id"
                 class="border-t border-gray-50 hover:bg-blue-50/30 transition-colors">
@@ -308,6 +345,9 @@ const fmtBs = v => v != null ? `Bs ${parseFloat(v).toFixed(2)}` : '—';
               </td>
               <td class="px-3 py-1.5 text-gray-500 hidden md:table-cell">
                 {{ p.categoria?.nombre ?? '—' }}
+              </td>
+              <td class="px-3 py-1.5 text-center font-bold text-gray-800">
+                {{ p.cantidad_compras_activas ?? 0 }}
               </td>
               <td class="px-3 py-1.5 text-right font-semibold text-gray-800">{{ fmtBs(p.precio_venta) }}</td>
               <td class="px-3 py-1.5 text-right text-gray-500 hidden lg:table-cell">

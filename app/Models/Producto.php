@@ -44,6 +44,11 @@ class Producto extends Model
         return $this->hasMany(DetalleVenta::class, 'producto_id');
     }
 
+    public function detalleCompras(): HasMany
+    {
+        return $this->hasMany(DetalleCompra::class, 'producto_id');
+    }
+
     public function scopeBajoStock($q)
     {
         return $q->whereColumn('stock_actual', '<=', 'stock_minimo');

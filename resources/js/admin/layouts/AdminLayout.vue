@@ -56,7 +56,13 @@ const pageTitle = computed(() => {
     if (route.path.startsWith('/admin/usuarios'))   return 'Usuarios';
     if (route.params.sucursalId) {
         const s   = auth.sucursales.find(s => s.id == route.params.sucursalId);
-        const mod = { productos: 'Productos', ventas: 'Ventas', compras: 'Compras', proveedores: 'Proveedores' };
+        if (route.name === 'sucursal.compras.nueva') {
+            return s ? `${s.nombre} - Compra nueva` : 'Compra nueva';
+        }
+        if (route.name === 'sucursal.compras.historial') {
+            return s ? `${s.nombre} - Historial compras` : 'Historial compras';
+        }
+        const mod = { productos: 'Productos', ventas: 'Ventas', proveedores: 'Proveedores' };
         const seg = route.path.split('/').pop();
         return s ? `${s.nombre} — ${mod[seg] ?? seg}` : (mod[seg] ?? 'Admin');
     }
@@ -201,13 +207,23 @@ const subOff   = 'text-slate-400 hover:text-white hover:bg-slate-700';
                     </RouterLink>
                   </li>
                   <li>
-                    <RouterLink :to="`/admin/s/${s.id}/compras`"
-                      :class="[subBase, route.path === `/admin/s/${s.id}/compras` ? subOn : subOff]"
+                    <RouterLink :to="`/admin/s/${s.id}/compras/nueva`"
+                      :class="[subBase, route.path === `/admin/s/${s.id}/compras/nueva` ? subOn : subOff]"
                       @click="closeSidebarOnMobile">
                       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 1 0-7.5 0v4.5m11.356-1.993 1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 0 1-1.12-1.243l1.264-12A1.125 1.125 0 0 1 5.513 7.5h12.974c.576 0 1.059.435 1.119 1.007ZM8.625 10.5a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm7.5 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/>
                       </svg>
-                      Compras
+                      Compra nueva
+                    </RouterLink>
+                  </li>
+                  <li>
+                    <RouterLink :to="`/admin/s/${s.id}/compras/historial`"
+                      :class="[subBase, route.path === `/admin/s/${s.id}/compras/historial` ? subOn : subOff]"
+                      @click="closeSidebarOnMobile">
+                      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h16.5M3.75 3v-.75A.75.75 0 0 1 4.5 1.5h15a.75.75 0 0 1 .75.75V3m0 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-10m.5 1.5.5-1.5m2.25-9 2.25 2.25L15 9"/>
+                      </svg>
+                      Historial compras
                     </RouterLink>
                   </li>
                   <li>
