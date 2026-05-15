@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use App\Exports\ProductosExport;
+use App\Http\Controllers\LandingController;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -76,31 +77,7 @@ Route::post('/logout', function () {
 // ============================================
 // LANDING PÚBLICA
 // ============================================
-Route::get('/', function () {
-    $sucursal  = Sucursal::where('activa', true)->orderBy('id')->first();
-    $productos  = collect();
-    $categorias = collect();
-
-    if ($sucursal) {
-        $categorias = DB::table('categorias')
-            ->where('sucursal_id', $sucursal->id)
-            ->orderBy('nombre')
-            ->get();
-
-        $productos = DB::table('productos')
-            ->leftJoin('categorias', 'productos.categoria_id', '=', 'categorias.id')
-            ->select('productos.*', 'categorias.nombre as categoria_nombre')
-            ->where('productos.sucursal_id', $sucursal->id)
-            ->where('productos.stock_actual', '>', 0)
-            ->where('productos.activo', true)
-            ->whereNull('productos.deleted_at')
-            ->orderBy('productos.id', 'desc')
-            ->limit(12)
-            ->get();
-    }
-
-    return view('landing.index', compact('sucursal', 'productos', 'categorias'));
-})->name('landing');
+Route::get('/', [LandingController::class, 'index'])->name('landing');
 
 Route::post('/pedido/whatsapp', function () {
     $datos = request()->validate([
