@@ -19,6 +19,25 @@ const showModal  = ref(false);
 const editingId  = ref(null);
 const saving     = ref(false);
 const errors     = ref({});
+
+// ── Historial ──────────────────────────────────────────────────
+const showHistorial   = ref(false);
+const historialTab    = ref('compras');
+const historialData   = ref({ producto: null, compras: [], ventas: [] });
+const loadingHistorial = ref(false);
+
+async function verHistorial(p) {
+    showHistorial.value   = true;
+    historialTab.value    = 'compras';
+    historialData.value   = { producto: p, compras: [], ventas: [] };
+    loadingHistorial.value = true;
+    try {
+        const { data } = await axios.get(`/api/admin/sucursales/${sucId.value}/productos/${p.id}/historial`);
+        historialData.value = data;
+    } finally {
+        loadingHistorial.value = false;
+    }
+}
 const imagePreview = ref(null);
 const imageFile    = ref(null);
 const dragOver     = ref(false);
@@ -173,7 +192,30 @@ async function remove(p) {
     }
 }
 
-const fmtBs = v => v != null ? `Bs ${parseFloat(v).toFixed(2)}` : '—';
+const fmtBs    = v => v != null ? `Bs ${parseFloat(v).toFixed(2)}` : '—';
+const fmtFecha = d => d ? new Date(d).toLocaleString('es-BO') : '—';
+const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia' };
+
+function stockPct(p) {
+    const min = p.stock_minimo ?? 0;
+    const max = p.stock_maximo;
+    if (!max || max <= min) return p.stock_actual > 0 ? 100 : 0;
+    return Math.min(100, Math.max(0, ((p.stock_actual - min) / (max - min)) * 100));
+}
+
+function stockColor(p) {
+    if (p.stock_actual <= 0)                          return 'text-red-600';
+    if (p.stock_actual < (p.stock_minimo ?? 0))       return 'text-red-600';
+    if (p.stock_actual === (p.stock_minimo ?? 0))     return 'text-orange-500';
+    return 'text-emerald-600';
+}
+
+function barColor(p) {
+    if (p.stock_actual <= 0)                          return 'bg-red-500';
+    if (p.stock_actual < (p.stock_minimo ?? 0))       return 'bg-red-500';
+    if (p.stock_actual <= (p.stock_minimo ?? 0) * 1.5) return 'bg-orange-400';
+    return 'bg-emerald-500';
+}
 </script>
 
 <template>
@@ -251,14 +293,14 @@ const fmtBs = v => v != null ? `Bs ${parseFloat(v).toFixed(2)}` : '—';
     <!-- Table -->
     <div v-else class="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-100">
       <div class="overflow-x-auto">
-        <table class="w-full text-xs min-w-[760px]">
+        <table class="w-full text-xs min-w-[820px]">
           <thead class="bg-gray-50 text-gray-400 uppercase border-b border-gray-100">
             <tr>
               <th class="px-3 py-2 text-left font-semibold tracking-wide w-24">Acciones</th>
               <th class="px-3 py-2 text-left w-8"></th>
               <th class="px-3 py-2 text-left font-semibold tracking-wide">Producto</th>
               <th class="px-3 py-2 text-left font-semibold tracking-wide hidden md:table-cell">Categoría</th>
-              <th class="px-3 py-2 text-center font-semibold tracking-wide">Cantidad</th>
+              <th class="px-3 py-2 text-center font-semibold tracking-wide w-36">Stock</th>
               <th class="px-3 py-2 text-right font-semibold tracking-wide">P. Venta</th>
               <th class="px-3 py-2 text-right font-semibold tracking-wide hidden lg:table-cell">P. Costo</th>
               <th class="px-3 py-2 text-center font-semibold tracking-wide hidden sm:table-cell">Estado</th>
@@ -277,6 +319,13 @@ const fmtBs = v => v != null ? `Bs ${parseFloat(v).toFixed(2)}` : '—';
                       <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z"/>
                     </svg>
                     Editar
+                  </button>
+                  <button @click="verHistorial(p)"
+                    class="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors">
+                    <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+                    </svg>
+                    Historial
                   </button>
                   <div class="border-t border-gray-100 my-0.5"/>
                   <button @click="remove(p)"
@@ -301,8 +350,32 @@ const fmtBs = v => v != null ? `Bs ${parseFloat(v).toFixed(2)}` : '—';
                 <p class="text-gray-400 leading-tight" style="font-size:10px">{{ p.codigo_barras ?? '—' }}</p>
               </td>
               <td class="px-3 py-1.5 text-gray-500 hidden md:table-cell">{{ p.categoria?.nombre ?? '—' }}</td>
-              <td class="px-3 py-1.5 text-center font-bold text-gray-800">
-                {{ p.cantidad_compras_activas ?? 0 }}
+              <td class="px-3 py-1.5">
+                <div class="flex flex-col items-center gap-1">
+                  <!-- Actual + alerta -->
+                  <div class="flex items-center gap-1">
+                    <svg v-if="p.stock_actual < (p.stock_minimo ?? 0)" class="w-3 h-3 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/>
+                    </svg>
+                    <span :class="['text-base font-bold leading-none', stockColor(p)]">
+                      {{ p.stock_actual }}
+                    </span>
+                  </div>
+                  <!-- Barra de progreso -->
+                  <div class="w-20 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                    <div :class="['h-full rounded-full transition-all', barColor(p)]"
+                      :style="{ width: stockPct(p) + '%' }"/>
+                  </div>
+                  <!-- Etiquetas min / max -->
+                  <div class="flex items-center gap-2 text-gray-400" style="font-size:10px">
+                    <span class="flex items-center gap-0.5">
+                      <span class="text-orange-400 font-semibold">↓</span>{{ p.stock_minimo ?? 0 }}
+                    </span>
+                    <span class="flex items-center gap-0.5">
+                      <span class="text-blue-400 font-semibold">↑</span>{{ p.stock_maximo ?? '∞' }}
+                    </span>
+                  </div>
+                </div>
               </td>
               <td class="px-3 py-1.5 text-right font-semibold text-gray-800">{{ fmtBs(p.precio_venta) }}</td>
               <td class="px-3 py-1.5 text-right text-gray-500 hidden lg:table-cell">{{ fmtBs(p.precio_compra) }}</td>
@@ -447,6 +520,149 @@ const fmtBs = v => v != null ? `Bs ${parseFloat(v).toFixed(2)}` : '—';
     </Transition>
 
   </div>
+
+  <!-- ══════════════ MODAL HISTORIAL ══════════════ -->
+  <Teleport to="body">
+    <div v-if="showHistorial"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+      @click.self="showHistorial = false">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[88vh] flex flex-col overflow-hidden">
+
+        <!-- Header -->
+        <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+          <div>
+            <h3 class="font-bold text-gray-800 text-sm">Historial — {{ historialData.producto?.nombre }}</h3>
+            <p class="text-gray-400 text-xs">Movimientos de compras y ventas</p>
+          </div>
+          <button @click="showHistorial = false" class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Tabs -->
+        <div class="flex gap-1 px-5 pt-3 pb-0 border-b border-gray-100 flex-shrink-0">
+          <button @click="historialTab = 'compras'"
+            :class="['px-4 py-2 text-xs font-semibold border-b-2 -mb-px transition-colors',
+              historialTab === 'compras' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400 hover:text-gray-600']">
+            Compras
+            <span class="ml-1 px-1.5 py-0.5 rounded-full text-xs"
+              :class="historialTab === 'compras' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'">
+              {{ historialData.compras.length }}
+            </span>
+          </button>
+          <button @click="historialTab = 'ventas'"
+            :class="['px-4 py-2 text-xs font-semibold border-b-2 -mb-px transition-colors',
+              historialTab === 'ventas' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-gray-400 hover:text-gray-600']">
+            Ventas
+            <span class="ml-1 px-1.5 py-0.5 rounded-full text-xs"
+              :class="historialTab === 'ventas' ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-500'">
+              {{ historialData.ventas.length }}
+            </span>
+          </button>
+        </div>
+
+        <!-- Body -->
+        <div class="flex-1 overflow-y-auto">
+          <div v-if="loadingHistorial" class="flex justify-center items-center py-16">
+            <svg class="animate-spin w-6 h-6 text-blue-500" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+            </svg>
+          </div>
+
+          <!-- TAB COMPRAS -->
+          <div v-else-if="historialTab === 'compras'">
+            <div v-if="!historialData.compras.length" class="py-14 text-center text-gray-400 text-xs">Sin compras registradas.</div>
+            <table v-else class="w-full text-xs">
+              <thead class="bg-gray-50 text-gray-400 uppercase border-b border-gray-100 sticky top-0">
+                <tr>
+                  <th class="px-4 py-2 text-left font-semibold tracking-wide">Fecha</th>
+                  <th class="px-4 py-2 text-left font-semibold tracking-wide">Compra</th>
+                  <th class="px-4 py-2 text-left font-semibold tracking-wide">Proveedor</th>
+                  <th class="px-4 py-2 text-center font-semibold tracking-wide">Comprado</th>
+                  <th class="px-4 py-2 text-center font-semibold tracking-wide">Vendido</th>
+                  <th class="px-4 py-2 text-center font-semibold tracking-wide">Disponible</th>
+                  <th class="px-4 py-2 text-right font-semibold tracking-wide">P. Unitario</th>
+                  <th class="px-4 py-2 text-right font-semibold tracking-wide">Total</th>
+                  <th class="px-4 py-2 text-center font-semibold tracking-wide">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="c in historialData.compras" :key="c.id"
+                  :class="['border-t border-gray-50', c.estado === 'anulada' ? 'opacity-50 bg-red-50/20' : 'hover:bg-blue-50/20']">
+                  <td class="px-4 py-2.5 text-gray-500 whitespace-nowrap">{{ fmtFecha(c.fecha) }}</td>
+                  <td class="px-4 py-2.5 font-mono text-gray-400">#{{ c.compra_id }}</td>
+                  <td class="px-4 py-2.5 font-semibold text-gray-700">{{ c.proveedor }}</td>
+                  <td class="px-4 py-2.5 text-center font-bold text-gray-800">{{ c.cantidad }}</td>
+                  <td class="px-4 py-2.5 text-center text-emerald-600 font-semibold">{{ c.cantidad_vendida }}</td>
+                  <td class="px-4 py-2.5 text-center">
+                    <span :class="['font-bold', c.disponible === 0 ? 'text-gray-400' : 'text-blue-600']">
+                      {{ c.disponible }}
+                    </span>
+                  </td>
+                  <td class="px-4 py-2.5 text-right text-gray-600">{{ fmtBs(c.precio_unitario) }}</td>
+                  <td class="px-4 py-2.5 text-right font-semibold text-gray-800">{{ fmtBs(c.precio_total) }}</td>
+                  <td class="px-4 py-2.5 text-center">
+                    <span :class="c.estado === 'activa' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'"
+                      class="inline-block px-2 py-0.5 rounded-full font-semibold capitalize">
+                      {{ c.estado }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- TAB VENTAS -->
+          <div v-else>
+            <div v-if="!historialData.ventas.length" class="py-14 text-center text-gray-400 text-xs">Sin ventas registradas.</div>
+            <table v-else class="w-full text-xs">
+              <thead class="bg-gray-50 text-gray-400 uppercase border-b border-gray-100 sticky top-0">
+                <tr>
+                  <th class="px-4 py-2 text-left font-semibold tracking-wide">Fecha</th>
+                  <th class="px-4 py-2 text-left font-semibold tracking-wide">Folio</th>
+                  <th class="px-4 py-2 text-left font-semibold tracking-wide">Cliente</th>
+                  <th class="px-4 py-2 text-left font-semibold tracking-wide">Usuario</th>
+                  <th class="px-4 py-2 text-center font-semibold tracking-wide">Cantidad</th>
+                  <th class="px-4 py-2 text-right font-semibold tracking-wide">P. Unitario</th>
+                  <th class="px-4 py-2 text-right font-semibold tracking-wide">Subtotal</th>
+                  <th class="px-4 py-2 text-center font-semibold tracking-wide">Estado</th>
+                  <th class="px-4 py-2 text-center font-semibold tracking-wide">Pago</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="v in historialData.ventas" :key="v.id"
+                  :class="['border-t border-gray-50', v.estado === 'cancelada' ? 'opacity-50 bg-red-50/20' : 'hover:bg-emerald-50/20']">
+                  <td class="px-4 py-2.5 text-gray-500 whitespace-nowrap">{{ fmtFecha(v.fecha) }}</td>
+                  <td class="px-4 py-2.5 font-mono text-gray-400">{{ v.folio }}</td>
+                  <td class="px-4 py-2.5 font-semibold text-gray-700">{{ v.cliente }}</td>
+                  <td class="px-4 py-2.5 text-gray-500">{{ v.usuario }}</td>
+                  <td class="px-4 py-2.5 text-center font-bold text-gray-800">{{ v.cantidad }}</td>
+                  <td class="px-4 py-2.5 text-right text-gray-600">{{ fmtBs(v.precio_unitario) }}</td>
+                  <td class="px-4 py-2.5 text-right font-semibold text-gray-800">{{ fmtBs(v.subtotal) }}</td>
+                  <td class="px-4 py-2.5 text-center">
+                    <span :class="v.estado === 'completada' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'"
+                      class="inline-block px-2 py-0.5 rounded-full font-semibold capitalize">
+                      {{ v.estado }}
+                    </span>
+                  </td>
+                  <td class="px-4 py-2.5 text-center">
+                    <span class="bg-gray-100 text-gray-600 inline-block px-2 py-0.5 rounded-full font-semibold">
+                      {{ pagoLabel[v.metodo_pago] ?? v.metodo_pago }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </Teleport>
+
 </template>
 
 <style scoped>

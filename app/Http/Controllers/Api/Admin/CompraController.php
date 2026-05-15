@@ -81,7 +81,9 @@ class CompraController extends Controller
 
                 Producto::where('id', $item['producto_id'])
                     ->where('sucursal_id', $sucursal->id)
-                    ->increment('stock_actual', $item['cantidad']);
+                    ->increment('stock_actual', $item['cantidad'], [
+                        'precio_compra' => $item['precio_unitario'],
+                    ]);
             }
 
             $this->_last = $compra->load('user:id,name,nickname', 'proveedor:id,nombre', 'detalles.producto:id,nombre,codigo_barras');

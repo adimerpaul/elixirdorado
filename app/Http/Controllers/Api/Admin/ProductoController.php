@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Exports\ProductosExport;
 use App\Http\Controllers\Controller;
 use App\Models\Categoria;
+use App\Models\DetalleCompra;
+use App\Models\DetalleVenta;
 use App\Models\Producto;
 use App\Models\Sucursal;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -112,6 +114,62 @@ class ProductoController extends Controller
         return response()->json($this->productoConCantidadActiva($producto->id));
     }
 
+    public function historial(Sucursal $sucursal, int $id)
+    {
+        $producto = Producto::where('sucursal_id', $sucursal->id)->findOrFail($id);
+
+        $compras = DetalleCompra::with([
+                'compra:id,sucursal_id,created_at,estado,metodo_pago',
+                'compra.proveedor:id,nombre',
+            ])
+            ->where('producto_id', $producto->id)
+            ->whereHas('compra', fn ($q) => $q->where('sucursal_id', $sucursal->id))
+            ->latest()
+            ->get()
+            ->map(fn ($d) => [
+                'id'               => $d->id,
+                'fecha'            => $d->compra->created_at,
+                'compra_id'        => $d->compra_id,
+                'proveedor'        => $d->compra->proveedor?->nombre ?? '—',
+                'estado'           => $d->compra->estado,
+                'metodo_pago'      => $d->compra->metodo_pago,
+                'cantidad'         => $d->cantidad,
+                'cantidad_vendida' => $d->cantidad_vendida,
+                'disponible'       => $d->cantidad - $d->cantidad_vendida,
+                'precio_unitario'  => $d->precio_unitario,
+                'precio_total'     => $d->precio_total,
+            ]);
+
+        $ventas = DetalleVenta::with([
+                'venta:id,sucursal_id,folio,created_at,estado,metodo_pago',
+                'venta.cliente:id,nombre',
+                'venta.usuario:id,name,nickname',
+            ])
+            ->where('producto_id', $producto->id)
+            ->whereHas('venta', fn ($q) => $q->where('sucursal_id', $sucursal->id))
+            ->latest()
+            ->get()
+            ->map(fn ($d) => [
+                'id'              => $d->id,
+                'fecha'           => $d->venta->created_at,
+                'folio'           => $d->venta->folio,
+                'venta_id'        => $d->venta_id,
+                'cliente'         => $d->venta->cliente?->nombre ?? 'S/N',
+                'usuario'         => $d->venta->usuario?->nickname ?? $d->venta->usuario?->name ?? '—',
+                'estado'          => $d->venta->estado,
+                'metodo_pago'     => $d->venta->metodo_pago,
+                'cantidad'        => $d->cantidad,
+                'precio_unitario' => $d->precio_unitario,
+                'subtotal'        => $d->subtotal,
+            ]);
+
+        return response()->json([
+            'producto' => ['id' => $producto->id, 'nombre' => $producto->nombre],
+            'compras'  => $compras,
+            'ventas'   => $ventas,
+        ]);
+    }
+
     public function destroy(Sucursal $sucursal, int $id)
     {
         $producto = Producto::where('sucursal_id', $sucursal->id)->findOrFail($id);
@@ -132,6 +190,41 @@ class ProductoController extends Controller
         $filename = "productos-{$sucursal->slug}-{$scope}.xlsx";
 
         return Excel::download(new ProductosExport($productos), $filename);
+    }
+
+    public function stockAlertas(Sucursal $sucursal)
+    {
+        $base = Producto::with('categoria:id,nombre')
+            ->where('sucursal_id', $sucursal->id)
+            ->where('activo', true);
+
+        $bajoMinimo = (clone $base)
+            ->whereColumn('stock_actual', '<=', 'stock_minimo')
+            ->orderBy('nombre')
+            ->get()
+            ->map(fn($p) => array_merge($p->toArray(), [
+                'diferencia' => $p->stock_minimo - $p->stock_actual,
+                'excedido'   => $p->stock_actual < $p->stock_minimo,
+                'porcentaje' => $p->stock_minimo > 0
+                    ? round(($p->stock_actual / $p->stock_minimo) * 100)
+                    : 0,
+            ]));
+
+        $sobreMaximo = (clone $base)
+            ->where('stock_maximo', '>', 0)
+            ->whereColumn('stock_actual', '>=', 'stock_maximo')
+            ->orderBy('nombre')
+            ->get()
+            ->map(fn($p) => array_merge($p->toArray(), [
+                'diferencia' => $p->stock_actual - $p->stock_maximo,
+                'excedido'   => $p->stock_actual > $p->stock_maximo,
+                'porcentaje' => round(($p->stock_actual / $p->stock_maximo) * 100),
+            ]));
+
+        return response()->json([
+            'bajo_minimo'  => $bajoMinimo,
+            'sobre_maximo' => $sobreMaximo,
+        ]);
     }
 
     public function exportPdf(Request $request, Sucursal $sucursal)

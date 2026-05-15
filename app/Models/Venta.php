@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -12,7 +13,7 @@ class Venta extends Model
 
     protected $fillable = [
         'sucursal_id', 'folio', 'usuario_id', 'cliente_id',
-        'subtotal', 'iva', 'total', 'metodo_pago', 'estado', 'fecha_venta',
+        'subtotal', 'iva', 'total', 'metodo_pago', 'comentarios', 'estado', 'fecha_venta',
     ];
 
     protected $casts = [
@@ -25,6 +26,11 @@ class Venta extends Model
     public function sucursal(): BelongsTo
     {
         return $this->belongsTo(Sucursal::class);
+    }
+
+    public function usuario(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'usuario_id');
     }
 
     public function detalles(): HasMany

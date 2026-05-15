@@ -1,11 +1,13 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\ClienteController;
 use App\Http\Controllers\Api\Admin\CompraController;
 use App\Http\Controllers\Api\Admin\DashboardController;
 use App\Http\Controllers\Api\Admin\ProductoController;
 use App\Http\Controllers\Api\Admin\ProveedorController;
 use App\Http\Controllers\Api\Admin\SucursalController;
 use App\Http\Controllers\Api\Admin\UserController;
+use App\Http\Controllers\Api\Admin\VentaController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/dashboard', [DashboardController::class, 'index']);
@@ -17,16 +19,25 @@ Route::patch('sucursales/{sucursal}/toggle', [SucursalController::class, 'toggle
 Route::apiResource('users', UserController::class);
 
 Route::prefix('sucursales/{sucursal}')->group(function () {
-    Route::get('productos',          [ProductoController::class, 'index']);
-    Route::get('productos/export/excel', [ProductoController::class, 'exportExcel']);
-    Route::get('productos/export/pdf',   [ProductoController::class, 'exportPdf']);
+    Route::get('productos',                    [ProductoController::class, 'index']);
+    Route::get('productos/stock-alertas',      [ProductoController::class, 'stockAlertas']);
+    Route::get('productos/export/excel',       [ProductoController::class, 'exportExcel']);
+    Route::get('productos/export/pdf',         [ProductoController::class, 'exportPdf']);
+    Route::get('productos/{id}/historial',     [ProductoController::class, 'historial']);
     Route::post('productos',         [ProductoController::class, 'store']);
     Route::post('productos/{id}',    [ProductoController::class, 'update']);
     Route::delete('productos/{id}',  [ProductoController::class, 'destroy']);
 
+    Route::get('ventas',                  [VentaController::class, 'index']);
+    Route::post('ventas',                 [VentaController::class, 'store']);
+    Route::patch('ventas/{id}/cancelar',  [VentaController::class, 'cancelar']);
+
     Route::get('compras',               [CompraController::class, 'index']);
     Route::post('compras',              [CompraController::class, 'store']);
     Route::patch('compras/{id}/anular', [CompraController::class, 'anular']);
+
+    Route::get('clientes',           [ClienteController::class, 'index']);
+    Route::post('clientes',          [ClienteController::class, 'store']);
 
     Route::get('proveedores',                    [ProveedorController::class, 'index']);
     Route::post('proveedores',                   [ProveedorController::class, 'store']);
