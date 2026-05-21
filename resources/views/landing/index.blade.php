@@ -207,6 +207,18 @@
         .cat-scroll::-webkit-scrollbar { height: 4px; }
         .cat-scroll::-webkit-scrollbar-thumb { background: rgba(212,165,116,0.3); border-radius: 2px; }
 
+        /* ── CARD ACTIONS ── */
+        .card-actions { display: flex; gap: 4px; align-items: stretch; margin-top: 10px; }
+        .card-actions .btn-agregar { margin-top: 0; flex: 1; }
+        .btn-detalles {
+            flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+            padding: 0 11px; border-radius: 12px; font-size: 13px; cursor: pointer;
+            border: 1px solid rgba(212,165,116,0.25); background: rgba(212,165,116,0.06);
+            color: rgba(212,165,116,0.7); text-decoration: none;
+            transition: all .2s ease;
+        }
+        .btn-detalles:hover { background: rgba(212,165,116,0.18); color: var(--gold-light); border-color: var(--gold); }
+
         footer { background: #06060a; padding: 40px 24px 110px; }
 
         @media (max-width: 400px) {
@@ -260,7 +272,7 @@
                 <a href="#productos" class="btn-gold">
                     <i class="fas fa-shopping-basket"></i> Explorar catálogo
                 </a>
-                <a href="https://wa.me/59168289548" target="_blank" rel="noopener" class="btn-ghost">
+                <a href="https://wa.me/{{ $whatsapp }}" target="_blank" rel="noopener" class="btn-ghost">
                     <i class="fab fa-whatsapp"></i> Escribir directo
                 </a>
             </div>
@@ -379,11 +391,16 @@
                                     <span class="product-stock">En stock</span>
                                 @endif
                             </div>
-                            <button class="btn-agregar default"
-                                    id="btn-{{ $p->id }}"
-                                    onclick="agregarAlCarrito({{ $p->id }}, '{{ addslashes($p->nombre) }}', {{ $p->precio_venta }})">
-                                <i class="fas fa-plus text-xs"></i> Agregar
-                            </button>
+                            <div class="card-actions">
+                                <button class="btn-agregar default"
+                                        id="btn-{{ $p->id }}"
+                                        onclick="agregarAlCarrito({{ $p->id }}, '{{ addslashes($p->nombre) }}', {{ $p->precio_venta }})">
+                                    <i class="fas fa-plus text-xs"></i> Agregar
+                                </button>
+                                <a href="/producto/{{ $p->id }}/{{ Str::slug($p->nombre) }}" class="btn-detalles" title="Ver detalles">
+                                    <i class="fas fa-eye text-xs"></i>
+                                </a>
+                            </div>
                         </div>
                     </div>
                 @endforeach
@@ -398,7 +415,7 @@
             <div class="glass rounded-3xl py-16 px-6 text-center reveal">
                 <i class="fas fa-wine-bottle text-5xl text-amber-300/30 mb-4"></i>
                 <p class="text-amber-100/70 text-lg">El catálogo estará disponible pronto.</p>
-                <a href="https://wa.me/59168289548" target="_blank" rel="noopener" class="btn-gold mt-6 inline-flex">
+                <a href="https://wa.me/{{ $whatsapp }}" target="_blank" rel="noopener" class="btn-gold mt-6 inline-flex">
                     <i class="fab fa-whatsapp"></i> Consultar por WhatsApp
                 </a>
             </div>
@@ -448,8 +465,8 @@
             <a href="#productos" class="btn-gold">
                 <i class="fas fa-shopping-basket"></i> Ver catálogo
             </a>
-            <a href="https://wa.me/59168289548" target="_blank" rel="noopener" class="btn-ghost">
-                <i class="fab fa-whatsapp"></i> +591 6 828 9548
+            <a href="https://wa.me/{{ $whatsapp }}" target="_blank" rel="noopener" class="btn-ghost">
+                <i class="fab fa-whatsapp"></i> +{{ $whatsapp }}
             </a>
         </div>
         @if($sucursal)
@@ -504,10 +521,18 @@
 
 <script>
 // ══════════════════════════════════════════════
-// CARRITO
+// CARRITO  (persistido en localStorage)
 // ══════════════════════════════════════════════
-const carrito = {}; // { id: { nombre, precio, qty } }
+let carrito = {};
+(function() {
+    try { carrito = JSON.parse(localStorage.getItem('elixir_carrito') || '{}'); } catch(e) {}
+})();
+
 let carritoAbierto = false;
+
+function saveCarrito() {
+    try { localStorage.setItem('elixir_carrito', JSON.stringify(carrito)); } catch(e) {}
+}
 
 function agregarAlCarrito(id, nombre, precio) {
     if (carrito[id]) {
@@ -515,6 +540,7 @@ function agregarAlCarrito(id, nombre, precio) {
     } else {
         carrito[id] = { nombre, precio, qty: 1 };
     }
+    saveCarrito();
     renderCarrito();
     actualizarBoton(id, true);
     abrirCarrito();
@@ -528,6 +554,7 @@ function cambiarCantidad(id, delta) {
         delete carrito[id];
         actualizarBoton(id, false);
     }
+    saveCarrito();
     renderCarrito();
     actualizarBadge();
 }
@@ -535,6 +562,7 @@ function cambiarCantidad(id, delta) {
 function quitarDelCarrito(id) {
     delete carrito[id];
     actualizarBoton(id, false);
+    saveCarrito();
     renderCarrito();
     actualizarBadge();
 }
@@ -664,7 +692,7 @@ function enviarPorWhatsApp() {
     msg += `💰 *Total: Bs. ${total.toLocaleString('es-BO', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}*\n\n`;
     msg += '¿Pueden confirmar disponibilidad? Gracias 🙏';
 
-    const url = 'https://wa.me/59168289548?text=' + encodeURIComponent(msg);
+    const url = 'https://wa.me/{{ $whatsapp }}?text=' + encodeURIComponent(msg);
     window.open(url, '_blank', 'noopener');
 }
 
@@ -715,6 +743,7 @@ function resetFiltros() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    Object.keys(carrito).forEach(id => actualizarBoton(id, true));
     contarVisibles();
     renderCarrito();
 });

@@ -104,6 +104,7 @@ function verVenta(v) {
 
 // ── Nueva Venta ───────────────────────────────────────────────
 const productos    = ref([]);
+const sixpacks     = ref([]);
 const searchProd   = ref('');
 const cart         = ref([]);
 const metodoPago   = ref('efectivo');
@@ -120,22 +121,37 @@ const prodFiltrados = computed(() => {
         : productos.value;
 });
 
+function stockDisponible(sp) {
+    if (!sp.componentes?.length) return 0;
+    return Math.min(...sp.componentes.map(c => Math.floor(c.stock_actual / c.cantidad)));
+}
+
+const sixpacksFiltrados = computed(() => {
+    const s = searchProd.value.toLowerCase();
+    return sixpacks.value.filter(sp =>
+        stockDisponible(sp) > 0 && (
+            !s ||
+            sp.nombre.toLowerCase().includes(s) ||
+            (sp.codigo_barras ?? '').toLowerCase().includes(s)
+        )
+    );
+});
+
 function onSearchEnter() {
     if (!searchProd.value.trim()) return;
+    const q = searchProd.value.trim();
 
-    // Coincidencia exacta por código de barras (prioridad)
-    const exacto = productos.value.find(
-        p => p.codigo_barras && p.codigo_barras === searchProd.value.trim()
-    );
-    if (exacto) {
-        agregarProducto(exacto);
-        searchProd.value = '';
-        return;
-    }
+    const exactoProd = productos.value.find(p => p.codigo_barras && p.codigo_barras === q);
+    if (exactoProd) { agregarProducto(exactoProd); searchProd.value = ''; return; }
 
-    // Si solo hay un resultado filtrado, agregarlo
-    if (prodFiltrados.value.length === 1) {
+    const exactoSp = sixpacks.value.find(sp => sp.codigo_barras && sp.codigo_barras === q);
+    if (exactoSp) { agregarSixpack(exactoSp); searchProd.value = ''; return; }
+
+    if (prodFiltrados.value.length === 1 && !sixpacksFiltrados.value.length) {
         agregarProducto(prodFiltrados.value[0]);
+        searchProd.value = '';
+    } else if (sixpacksFiltrados.value.length === 1 && !prodFiltrados.value.length) {
+        agregarSixpack(sixpacksFiltrados.value[0]);
         searchProd.value = '';
     }
 }
@@ -147,6 +163,11 @@ const total = computed(() =>
 async function loadProductos() {
     const { data } = await axios.get(`/api/admin/sucursales/${sucId.value}/productos`);
     productos.value = data.productos.filter(p => p.activo && p.stock_actual > 0);
+}
+
+async function loadSixpacks() {
+    const { data } = await axios.get(`/api/admin/sucursales/${sucId.value}/sixpacks`);
+    sixpacks.value = data.sixpacks;
 }
 
 function agregarProducto(p) {
@@ -164,6 +185,28 @@ function agregarProducto(p) {
             cantidad:        1,
             precio_unitario: precio,
             subtotal_linea:  precio,
+        });
+    }
+}
+
+function agregarSixpack(sp) {
+    const disp = stockDisponible(sp);
+    const existing = cart.value.find(i => i.sixpack_id === sp.id);
+    if (existing) {
+        if (existing.cantidad + 1 > disp) return;
+        existing.cantidad++;
+        recalcular(existing);
+    } else {
+        if (disp < 1) return;
+        const precio = parseFloat(sp.precio_venta) || 0;
+        cart.value.push({
+            sixpack_id:       sp.id,
+            nombre:           sp.nombre,
+            codigo_barras:    sp.codigo_barras,
+            stock_disponible: disp,
+            cantidad:         1,
+            precio_unitario:  precio,
+            subtotal_linea:   precio,
         });
     }
 }
@@ -225,11 +268,10 @@ async function registrarVenta() {
             cliente_id:  clienteId.value || null,
             metodo_pago: metodoPago.value,
             comentarios: comentarios.value || null,
-            items: cart.value.map(i => ({
-                producto_id:      i.producto_id,
-                cantidad:         i.cantidad,
-                precio_unitario:  i.precio_unitario,
-            })),
+            items: cart.value.map(i => i.sixpack_id
+                ? { sixpack_id: i.sixpack_id, cantidad: i.cantidad, precio_unitario: i.precio_unitario }
+                : { producto_id: i.producto_id, cantidad: i.cantidad, precio_unitario: i.precio_unitario }
+            ),
         });
         cart.value        = [];
         clienteId.value   = null;
@@ -253,7 +295,7 @@ watch(sucId, async () => {
     cart.value      = [];
     clienteId.value = null;
     tab.value = tabFromRoute();
-    await Promise.all([loadProductos(), loadClientes(), loadHistorial()]);
+    await Promise.all([loadProductos(), loadSixpacks(), loadClientes(), loadHistorial()]);
 }, { immediate: true });
 
 watch(() => route.name, () => {
@@ -262,7 +304,7 @@ watch(() => route.name, () => {
 
 watch(tab, (t) => {
     if (t === 'historial') loadHistorial();
-    if (t === 'nueva') loadProductos();
+    if (t === 'nueva') { loadProductos(); loadSixpacks(); }
 });
 
 // ── Format helpers ────────────────────────────────────────────
@@ -313,31 +355,71 @@ const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Tr
           </div>
         </div>
         <div class="flex-1 overflow-y-auto p-3">
-          <div v-if="!prodFiltrados.length" class="py-8 text-center text-gray-400 text-xs">Sin productos</div>
-          <div v-else class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-2.5">
-            <button v-for="p in prodFiltrados" :key="p.id"
-              @click="agregarProducto(p)"
-              class="group relative h-32 overflow-hidden rounded-lg border border-gray-200 bg-gray-100 text-left shadow-sm transition hover:border-emerald-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500">
-              <img v-if="p.imagen" :src="`/storage/${p.imagen}`" class="absolute inset-0 w-full h-full object-cover transition-transform duration-200 group-hover:scale-105">
-              <div v-else class="absolute inset-0 flex items-center justify-center bg-gray-100">
-                <svg class="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/>
-                </svg>
-              </div>
-              <div class="absolute inset-x-0 bottom-0 bg-black/60 px-2 py-1.5 text-white">
-                <p class="text-[12px] font-bold leading-tight overflow-hidden" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">{{ p.nombre }}</p>
-                <div class="mt-1 flex items-center justify-between gap-2 text-[11px] font-semibold leading-none text-white/90">
-                  <span>Stock: {{ p.stock_actual }}</span>
-                  <span class="rounded bg-emerald-500 px-1.5 py-1 text-white">{{ fmtBs(p.precio_venta) }}</span>
+          <div v-if="!prodFiltrados.length && !sixpacksFiltrados.length" class="py-8 text-center text-gray-400 text-xs">Sin productos</div>
+          <template v-else>
+            <!-- Productos normales -->
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-2.5">
+              <button v-for="p in prodFiltrados" :key="p.id"
+                @click="agregarProducto(p)"
+                class="group relative h-32 overflow-hidden rounded-lg border border-gray-200 bg-gray-100 text-left shadow-sm transition hover:border-emerald-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                <img v-if="p.imagen" :src="`/storage/${p.imagen}`" class="absolute inset-0 w-full h-full object-cover transition-transform duration-200 group-hover:scale-105">
+                <div v-else class="absolute inset-0 flex items-center justify-center bg-gray-100">
+                  <svg class="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/>
+                  </svg>
                 </div>
+                <div class="absolute inset-x-0 bottom-0 bg-black/60 px-2 py-1.5 text-white">
+                  <p class="text-[12px] font-bold leading-tight overflow-hidden" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">{{ p.nombre }}</p>
+                  <div class="mt-1 flex items-center justify-between gap-2 text-[11px] font-semibold leading-none text-white/90">
+                    <span>Stock: {{ p.stock_actual }}</span>
+                    <span class="rounded bg-emerald-500 px-1.5 py-1 text-white">{{ fmtBs(p.precio_venta) }}</span>
+                  </div>
+                </div>
+                <div class="absolute right-1.5 top-1.5 rounded-full bg-emerald-600/90 p-1 text-white opacity-0 shadow transition group-hover:opacity-100">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+                  </svg>
+                </div>
+              </button>
+            </div>
+
+            <!-- Sixpacks -->
+            <template v-if="sixpacksFiltrados.length">
+              <div class="flex items-center gap-2 mt-4 mb-2">
+                <div class="h-px flex-1" style="background:#ede9fe;"></div>
+                <span class="text-xs font-bold px-2 py-0.5 rounded-full" style="background:#f5f3ff;color:#6d28d9;">
+                  Sixpacks / Packs
+                </span>
+                <div class="h-px flex-1" style="background:#ede9fe;"></div>
               </div>
-              <div class="absolute right-1.5 top-1.5 rounded-full bg-emerald-600/90 p-1 text-white opacity-0 shadow transition group-hover:opacity-100">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-                </svg>
+              <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-2.5">
+                <button v-for="sp in sixpacksFiltrados" :key="sp.id"
+                  @click="agregarSixpack(sp)"
+                  class="group relative h-32 overflow-hidden rounded-lg border text-left shadow-sm transition hover:shadow-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  style="border-color:#c4b5fd;background:#faf5ff;">
+                  <img v-if="sp.imagen" :src="`/storage/${sp.imagen}`" class="absolute inset-0 w-full h-full object-cover transition-transform duration-200 group-hover:scale-105">
+                  <div v-else class="absolute inset-0 flex items-center justify-center" style="background:#f5f3ff;">
+                    <svg class="w-10 h-10" style="color:#ddd6fe;" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6.429 9.75 2.25 12l4.179 2.25m0-4.5 5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0 4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0-5.571 3-5.571-3"/>
+                    </svg>
+                  </div>
+                  <div class="absolute inset-x-0 bottom-0 px-2 py-1.5 text-white" style="background:rgba(109,40,217,0.75);">
+                    <div class="text-[10px] font-bold opacity-80 uppercase tracking-wide">Pack</div>
+                    <p class="text-[12px] font-bold leading-tight overflow-hidden" style="display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;">{{ sp.nombre }}</p>
+                    <div class="mt-0.5 flex items-center justify-between gap-2 text-[11px] font-semibold leading-none">
+                      <span class="opacity-80">Disp: {{ stockDisponible(sp) }}</span>
+                      <span class="rounded px-1.5 py-0.5" style="background:rgba(255,255,255,0.2);">{{ fmtBs(sp.precio_venta) }}</span>
+                    </div>
+                  </div>
+                  <div class="absolute right-1.5 top-1.5 rounded-full p-1 text-white opacity-0 shadow transition group-hover:opacity-100" style="background:rgba(109,40,217,0.85);">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+                    </svg>
+                  </div>
+                </button>
               </div>
-            </button>
-          </div>
+            </template>
+          </template>
         </div>
       </div>
 
@@ -427,11 +509,19 @@ const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Tr
                     Selecciona productos del panel izquierdo
                   </td>
                 </tr>
-                <tr v-for="(item, idx) in cart" :key="item.producto_id"
-                  class="border-t border-gray-50 hover:bg-gray-50/50">
+                <tr v-for="(item, idx) in cart"
+                  :key="item.sixpack_id ? 'sp_' + item.sixpack_id : 'pr_' + item.producto_id"
+                  :class="['border-t border-gray-50', item.sixpack_id ? 'bg-purple-50/30 hover:bg-purple-50/50' : 'hover:bg-gray-50/50']">
                   <td class="px-3 py-2">
-                    <p class="font-semibold text-gray-800">{{ item.nombre }}</p>
-                    <p class="text-gray-400" style="font-size:10px">{{ item.codigo_barras ?? '—' }} · Stock: {{ item.stock_actual }}</p>
+                    <p class="font-semibold text-gray-800">
+                      <span v-if="item.sixpack_id"
+                        class="inline-block text-[10px] font-bold px-1 py-0.5 rounded mr-1 align-middle"
+                        style="background:#ede9fe;color:#5b21b6;">PACK</span>
+                      {{ item.nombre }}
+                    </p>
+                    <p class="text-gray-400" style="font-size:10px">
+                      {{ item.codigo_barras ?? '—' }} · Stock: {{ item.sixpack_id ? item.stock_disponible : item.stock_actual }}
+                    </p>
                   </td>
                   <td class="px-3 py-2">
                     <input v-model.number="item.cantidad" type="number" min="1"

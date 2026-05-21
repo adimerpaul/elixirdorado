@@ -913,7 +913,7 @@
             `💰 *Total estimado: Bs. ${total.toFixed(2)}*\n\n` +
             `_Pedido realizado desde el catálogo en línea_`;
 
-        const phone = '59168289548';
+        const phone = '{{ $whatsapp }}';
         const url   = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
 
         window.open(url, '_blank');
