@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Configuracion;
 use App\Models\Sucursal;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class LandingController extends Controller
 {
@@ -37,7 +38,7 @@ class LandingController extends Controller
         return view('landing.index', compact('sucursal', 'productos', 'categorias', 'whatsapp'));
     }
 
-    public function producto(int $id)
+    public function producto(int $id, string $slug = '')
     {
         $producto = DB::table('productos')
             ->leftJoin('categorias', 'productos.categoria_id', '=', 'categorias.id')
@@ -49,8 +50,16 @@ class LandingController extends Controller
 
         abort_if(!$producto, 404);
 
+        $canonicalSlug = Str::slug($producto->nombre);
+        $canonicalUrl  = url("/producto/{$id}/{$canonicalSlug}");
+
+        // Redirect to canonical URL if slug is missing or wrong
+        if ($slug !== $canonicalSlug) {
+            return redirect($canonicalUrl, 301);
+        }
+
         $whatsapp = Configuracion::get('whatsapp', '59168289548');
 
-        return view('landing.producto', compact('producto', 'whatsapp'));
+        return view('landing.producto', compact('producto', 'whatsapp', 'canonicalUrl'));
     }
 }

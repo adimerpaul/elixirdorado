@@ -6,7 +6,7 @@
     <title>{{ $producto->nombre }} · Elixir Dorado</title>
     <meta name="description" content="Compra {{ $producto->nombre }} por Bs. {{ number_format($producto->precio_venta, 0) }} en Elixir Dorado. {{ $producto->categoria_nombre ?? 'Bebidas premium' }} con envío rápido en Bolivia.">
     <meta name="robots" content="index, follow">
-    <link rel="canonical" href="{{ url('/producto/' . $producto->id) }}">
+    <link rel="canonical" href="{{ $canonicalUrl }}">
 
     {{-- Open Graph --}}
     <meta property="og:type" content="product">
@@ -15,7 +15,7 @@
     @if(!empty($producto->imagen))
     <meta property="og:image" content="{{ asset('storage/' . $producto->imagen) }}">
     @endif
-    <meta property="og:url" content="{{ url('/producto/' . $producto->id) }}">
+    <meta property="og:url" content="{{ $canonicalUrl }}">
     <meta property="og:site_name" content="Elixir Dorado">
 
     {{-- Twitter Card --}}
@@ -42,7 +42,7 @@
             "priceCurrency": "BOB",
             "price": "{{ $producto->precio_venta }}",
             "availability": "https://schema.org/InStock",
-            "url": "{{ url('/producto/' . $producto->id) }}"
+            "url": "{{ $canonicalUrl }}"
         }
     }
     </script>
@@ -166,6 +166,32 @@
         .cart-added-notice {
             text-align: center; font-size: 13px; color: rgba(245,236,217,0.5); margin-top: 8px;
         }
+
+        /* ── SHARE ── */
+        .share-divider {
+            display: flex; align-items: center; gap: 10px; margin: 20px 0 12px;
+            color: rgba(245,236,217,0.35); font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+        }
+        .share-divider::before, .share-divider::after {
+            content: ''; flex: 1; height: 1px; background: rgba(212,165,116,0.15);
+        }
+        .share-row { display: flex; gap: 8px; flex-wrap: wrap; }
+        .share-btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+            flex: 1; min-width: 0; padding: 10px 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.04); color: rgba(245,236,217,0.75);
+            font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: none; white-space: nowrap;
+            transition: all .2s ease; font-family: inherit;
+        }
+        .share-btn:hover { transform: translateY(-2px); }
+        .share-btn-wa    { border-color: rgba(37,211,102,0.35); color: #86efac; }
+        .share-btn-wa:hover { background: rgba(37,211,102,0.15); border-color: rgba(37,211,102,0.6); box-shadow: 0 4px 16px rgba(37,211,102,0.2); }
+        .share-btn-gmail { border-color: rgba(234,67,53,0.35); color: #fca5a5; }
+        .share-btn-gmail:hover { background: rgba(234,67,53,0.15); border-color: rgba(234,67,53,0.6); box-shadow: 0 4px 16px rgba(234,67,53,0.2); }
+        .share-btn-copy  { border-color: rgba(212,165,116,0.35); color: var(--gold-light); }
+        .share-btn-copy:hover { background: rgba(212,165,116,0.15); border-color: var(--gold); box-shadow: 0 4px 16px rgba(212,165,116,0.2); }
+        .share-btn-more  { border-color: rgba(139,92,246,0.35); color: #c4b5fd; }
+        .share-btn-more:hover { background: rgba(139,92,246,0.15); border-color: rgba(139,92,246,0.6); box-shadow: 0 4px 16px rgba(139,92,246,0.2); }
 
         /* ── CARRITO FLOTANTE ── */
         #carrito-panel {
@@ -326,6 +352,23 @@
                 Ver catálogo completo
             </a>
 
+            {{-- ── SHARE ── --}}
+            <div class="share-divider">Compartir</div>
+            <div class="share-row">
+                <a href="#" onclick="shareWhatsapp(); return false;" class="share-btn share-btn-wa" title="Compartir por WhatsApp">
+                    <i class="fab fa-whatsapp"></i> WhatsApp
+                </a>
+                <a href="#" onclick="shareGmail(); return false;" class="share-btn share-btn-gmail" title="Enviar por Gmail">
+                    <i class="fas fa-envelope"></i> Gmail
+                </a>
+                <button onclick="copyLink()" class="share-btn share-btn-copy" id="btn-copy-link" title="Copiar enlace">
+                    <i class="fas fa-link"></i> Copiar
+                </button>
+                <button onclick="nativeShare()" class="share-btn share-btn-more" id="btn-native-share" title="Más opciones" style="display:none">
+                    <i class="fas fa-share-nodes"></i> Más
+                </button>
+            </div>
+
             <p class="cart-added-notice" id="added-notice" style="display:none">
                 <i class="fas fa-check-circle" style="color:#86efac"></i>
                 Producto en tu carrito · Pulsa <i class="fab fa-whatsapp" style="color:#25d366"></i> para finalizar el pedido
@@ -366,10 +409,11 @@
 
 <script>
 // ── Datos del producto ──────────────────────────────────────────────
-const PRODUCTO_ID    = {{ $producto->id }};
+const PRODUCTO_ID     = {{ $producto->id }};
 const PRODUCTO_NOMBRE = '{{ addslashes($producto->nombre) }}';
 const PRODUCTO_PRECIO = {{ $producto->precio_venta }};
 const STOCK_MAX       = {{ $producto->stock_actual }};
+const PRODUCTO_URL    = '{{ $canonicalUrl }}';
 
 // ── Carrito (localStorage) ──────────────────────────────────────────
 let carrito = {};
@@ -554,6 +598,52 @@ function escHtml(s) {
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ── Compartir ────────────────────────────────────────────────────────
+function shareWhatsapp() {
+    const text = `🥃 *${PRODUCTO_NOMBRE}*\nBs. ${PRODUCTO_PRECIO.toLocaleString('es-BO')} — Elixir Dorado\n\n${PRODUCTO_URL}`;
+    window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
+}
+
+function shareGmail() {
+    const subject = `${PRODUCTO_NOMBRE} · Elixir Dorado`;
+    const body    = `Te comparto este producto:\n\n${PRODUCTO_NOMBRE}\nPrecio: Bs. ${PRODUCTO_PRECIO.toLocaleString('es-BO')}\n\n${PRODUCTO_URL}`;
+    window.open(
+        'https://mail.google.com/mail/?view=cm&su=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body),
+        '_blank', 'noopener'
+    );
+}
+
+function copyLink() {
+    const btn = document.getElementById('btn-copy-link');
+    const restore = () => {
+        btn.innerHTML = '<i class="fas fa-link"></i> Copiar';
+        btn.classList.remove('share-btn-copied');
+    };
+    navigator.clipboard.writeText(PRODUCTO_URL).then(() => {
+        btn.innerHTML = '<i class="fas fa-check"></i> ¡Copiado!';
+        btn.style.background    = 'rgba(34,197,94,0.2)';
+        btn.style.borderColor   = 'rgba(34,197,94,0.5)';
+        btn.style.color         = '#86efac';
+        setTimeout(() => { btn.style.cssText = ''; restore(); }, 2200);
+    }).catch(() => {
+        // Fallback
+        const tmp = document.createElement('textarea');
+        tmp.value = PRODUCTO_URL; tmp.style.position = 'fixed'; tmp.style.opacity = '0';
+        document.body.appendChild(tmp); tmp.select(); document.execCommand('copy');
+        document.body.removeChild(tmp);
+        btn.innerHTML = '<i class="fas fa-check"></i> ¡Copiado!';
+        setTimeout(restore, 2200);
+    });
+}
+
+function nativeShare() {
+    navigator.share({
+        title: PRODUCTO_NOMBRE + ' · Elixir Dorado',
+        text:  `${PRODUCTO_NOMBRE} — Bs. ${PRODUCTO_PRECIO.toLocaleString('es-BO')} 🥃`,
+        url:   PRODUCTO_URL,
+    }).catch(() => {});
+}
+
 // ── Init ─────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     renderCarrito();
@@ -561,6 +651,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Show "en carrito" notice if this product is already in cart
     if (carrito[String(PRODUCTO_ID)]) {
         document.getElementById('added-notice').style.display = '';
+    }
+    // Show native share button on devices that support it (mostly mobile)
+    if (navigator.share) {
+        document.getElementById('btn-native-share').style.display = 'inline-flex';
     }
     // Disable qty buttons at boundaries
     if (STOCK_MAX <= 1) document.getElementById('btn-plus').disabled = true;

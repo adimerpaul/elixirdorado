@@ -397,7 +397,7 @@
                                         onclick="agregarAlCarrito({{ $p->id }}, '{{ addslashes($p->nombre) }}', {{ $p->precio_venta }})">
                                     <i class="fas fa-plus text-xs"></i> Agregar
                                 </button>
-                                <a href="/producto/{{ $p->id }}" class="btn-detalles" title="Ver detalles">
+                                <a href="/producto/{{ $p->id }}/{{ Str::slug($p->nombre) }}" class="btn-detalles" title="Ver detalles">
                                     <i class="fas fa-eye text-xs"></i>
                                 </a>
                             </div>
