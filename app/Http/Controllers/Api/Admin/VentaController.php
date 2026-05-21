@@ -57,15 +57,51 @@ class VentaController extends Controller
             'comentarios'             => 'nullable|string|max:500',
             'metodo_pago'             => 'required|in:efectivo,tarjeta,transferencia',
             'items'                   => 'required|array|min:1',
-            'items.*.producto_id'     => 'required|integer|exists:productos,id',
+            'items.*.producto_id'     => 'nullable|integer',
+            'items.*.sixpack_id'      => 'nullable|integer',
             'items.*.cantidad'        => 'required|integer|min:1',
             'items.*.precio_unitario' => 'required|numeric|min:0',
         ]);
 
         DB::transaction(function () use ($data, $sucursal) {
-            $subtotal = collect($data['items'])->sum(
-                fn ($i) => $i['cantidad'] * $i['precio_unitario']
-            );
+            // Cargar componentes de sixpacks
+            $spComponentes = [];
+            foreach ($data['items'] as $item) {
+                if (!empty($item['sixpack_id'])) {
+                    $spId = $item['sixpack_id'];
+                    $spComponentes[$spId] ??= DB::table('sixpack_componentes')
+                        ->where('sixpack_id', $spId)->get();
+                }
+            }
+
+            // Agregar necesidades de stock (productos directos + componentes de sixpacks)
+            $allNeeds = [];
+            foreach ($data['items'] as $item) {
+                if (!empty($item['producto_id'])) {
+                    $allNeeds[$item['producto_id']] = ($allNeeds[$item['producto_id']] ?? 0) + $item['cantidad'];
+                } elseif (!empty($item['sixpack_id'])) {
+                    foreach ($spComponentes[$item['sixpack_id']] as $comp) {
+                        $allNeeds[$comp->producto_id] = ($allNeeds[$comp->producto_id] ?? 0)
+                            + ($comp->cantidad * $item['cantidad']);
+                    }
+                }
+            }
+
+            // Bloquear y validar stock
+            $stocks = DB::table('productos')
+                ->where('sucursal_id', $sucursal->id)
+                ->whereIn('id', array_keys($allNeeds))
+                ->lockForUpdate()
+                ->pluck('stock_actual', 'id');
+
+            foreach ($allNeeds as $prodId => $needed) {
+                if (($stocks[$prodId] ?? 0) < $needed) {
+                    $nombre = DB::table('productos')->find($prodId)?->nombre ?? "ID $prodId";
+                    abort(422, "Stock insuficiente para \"$nombre\" (disponible: {$stocks[$prodId]}).");
+                }
+            }
+
+            $subtotal = collect($data['items'])->sum(fn ($i) => $i['cantidad'] * $i['precio_unitario']);
 
             $venta = Venta::create([
                 'sucursal_id'  => $sucursal->id,
@@ -83,26 +119,37 @@ class VentaController extends Controller
             $venta->update(['folio' => 'VTA-' . str_pad($venta->id, 6, '0', STR_PAD_LEFT)]);
 
             foreach ($data['items'] as $item) {
-                $producto = Producto::where('id', $item['producto_id'])
-                    ->where('sucursal_id', $sucursal->id)
-                    ->lockForUpdate()
-                    ->firstOrFail();
-
-                if ($producto->stock_actual < $item['cantidad']) {
-                    abort(422, "Stock insuficiente para \"{$producto->nombre}\" (disponible: {$producto->stock_actual}).");
+                if (!empty($item['producto_id'])) {
+                    DetalleVenta::create([
+                        'venta_id'        => $venta->id,
+                        'producto_id'     => $item['producto_id'],
+                        'cantidad'        => $item['cantidad'],
+                        'precio_unitario' => $item['precio_unitario'],
+                        'subtotal'        => $item['cantidad'] * $item['precio_unitario'],
+                    ]);
+                    Producto::where('id', $item['producto_id'])
+                        ->where('sucursal_id', $sucursal->id)
+                        ->decrement('stock_actual', $item['cantidad']);
+                    $this->aplicarFifo($item['producto_id'], $sucursal->id, $item['cantidad']);
+                } elseif (!empty($item['sixpack_id'])) {
+                    DB::table('detalle_ventas')->insert([
+                        'venta_id'        => $venta->id,
+                        'producto_id'     => null,
+                        'sixpack_id'      => $item['sixpack_id'],
+                        'cantidad'        => $item['cantidad'],
+                        'precio_unitario' => $item['precio_unitario'],
+                        'subtotal'        => $item['cantidad'] * $item['precio_unitario'],
+                        'created_at'      => now(),
+                        'updated_at'      => now(),
+                    ]);
+                    foreach ($spComponentes[$item['sixpack_id']] as $comp) {
+                        $needed = $comp->cantidad * $item['cantidad'];
+                        Producto::where('id', $comp->producto_id)
+                            ->where('sucursal_id', $sucursal->id)
+                            ->decrement('stock_actual', $needed);
+                        $this->aplicarFifo($comp->producto_id, $sucursal->id, $needed);
+                    }
                 }
-
-                DetalleVenta::create([
-                    'venta_id'        => $venta->id,
-                    'producto_id'     => $item['producto_id'],
-                    'cantidad'        => $item['cantidad'],
-                    'precio_unitario' => $item['precio_unitario'],
-                    'subtotal'        => $item['cantidad'] * $item['precio_unitario'],
-                ]);
-
-                $producto->decrement('stock_actual', $item['cantidad']);
-
-                $this->aplicarFifo($item['producto_id'], $sucursal->id, $item['cantidad']);
             }
 
             $this->_last = $venta->load(
@@ -123,12 +170,27 @@ class VentaController extends Controller
             ->findOrFail($id);
 
         DB::transaction(function () use ($venta, $sucursal) {
-            foreach ($venta->detalles as $detalle) {
-                Producto::where('id', $detalle->producto_id)
-                    ->where('sucursal_id', $sucursal->id)
-                    ->increment('stock_actual', $detalle->cantidad);
+            // Leer detalles directamente con DB para asegurar sixpack_id
+            $detalles = DB::table('detalle_ventas')->where('venta_id', $venta->id)->get();
 
-                $this->revertirFifo($detalle->producto_id, $sucursal->id, $detalle->cantidad);
+            foreach ($detalles as $detalle) {
+                if (!empty($detalle->producto_id)) {
+                    Producto::where('id', $detalle->producto_id)
+                        ->where('sucursal_id', $sucursal->id)
+                        ->increment('stock_actual', $detalle->cantidad);
+                    $this->revertirFifo($detalle->producto_id, $sucursal->id, $detalle->cantidad);
+                } elseif (!empty($detalle->sixpack_id)) {
+                    $componentes = DB::table('sixpack_componentes')
+                        ->where('sixpack_id', $detalle->sixpack_id)
+                        ->get();
+                    foreach ($componentes as $comp) {
+                        $needed = $comp->cantidad * $detalle->cantidad;
+                        Producto::where('id', $comp->producto_id)
+                            ->where('sucursal_id', $sucursal->id)
+                            ->increment('stock_actual', $needed);
+                        $this->revertirFifo($comp->producto_id, $sucursal->id, $needed);
+                    }
+                }
             }
 
             $venta->update(['estado' => 'cancelada']);

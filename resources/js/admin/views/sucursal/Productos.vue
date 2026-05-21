@@ -208,6 +208,9 @@ const sixpackErrors      = ref({});
 const sixpackImgPreview  = ref(null);
 const sixpackImgFile     = ref(null);
 const sixpackDragOver    = ref(false);
+const openCompIndex      = ref(-1);
+const compSearch         = ref([]);
+const compDropdownPos    = ref({ top: 0, left: 0, width: 0 });
 
 const emptySixpackForm = () => ({
     codigo_barras: '', nombre: '', categoria_id: '',
@@ -224,11 +227,13 @@ async function loadSixpacks() {
 }
 
 function openCreateSixpack() {
-    editingSixpackId.value = null;
-    sixpackForm.value      = emptySixpackForm();
-    sixpackErrors.value    = {};
+    editingSixpackId.value  = null;
+    sixpackForm.value       = emptySixpackForm();
+    sixpackErrors.value     = {};
     sixpackImgPreview.value = null;
     sixpackImgFile.value    = null;
+    openCompIndex.value     = -1;
+    compSearch.value        = [''];
     showSixpackModal.value  = true;
 }
 
@@ -247,14 +252,49 @@ function openEditSixpack(sp) {
         componentes:    (sp.componentes || []).map(c => ({ producto_id: c.producto_id, cantidad: c.cantidad })),
     };
     if (!sixpackForm.value.componentes.length) sixpackForm.value.componentes.push({ producto_id: '', cantidad: 1 });
-    sixpackErrors.value    = {};
+    sixpackErrors.value     = {};
     sixpackImgPreview.value = sp.imagen ? `/storage/${sp.imagen}` : null;
     sixpackImgFile.value    = null;
+    openCompIndex.value     = -1;
+    compSearch.value        = Array(sixpackForm.value.componentes.length).fill('');
     showSixpackModal.value  = true;
 }
 
-function addComponente() { sixpackForm.value.componentes.push({ producto_id: '', cantidad: 1 }); }
-function removeComponente(i) { if (sixpackForm.value.componentes.length > 1) sixpackForm.value.componentes.splice(i, 1); }
+function addComponente() {
+    sixpackForm.value.componentes.push({ producto_id: '', cantidad: 1 });
+    compSearch.value.push('');
+}
+function removeComponente(i) {
+    if (sixpackForm.value.componentes.length > 1) {
+        sixpackForm.value.componentes.splice(i, 1);
+        compSearch.value.splice(i, 1);
+        if (openCompIndex.value === i) openCompIndex.value = -1;
+        else if (openCompIndex.value > i) openCompIndex.value--;
+    }
+}
+
+function filteredProductsForComp(i) {
+    const q = (compSearch.value[i] ?? '').toLowerCase();
+    if (!q) return productos.value;
+    return productos.value.filter(p => p.nombre.toLowerCase().includes(q));
+}
+
+function toggleCompDropdown(i, event) {
+    if (openCompIndex.value === i) { openCompIndex.value = -1; return; }
+    compSearch.value[i] = '';
+    const rect = event.currentTarget.getBoundingClientRect();
+    compDropdownPos.value = { top: rect.bottom + 4, left: rect.left, width: rect.width };
+    openCompIndex.value = i;
+}
+
+function selectComp(i, id) {
+    sixpackForm.value.componentes[i].producto_id = id;
+    openCompIndex.value = -1;
+}
+
+function getProductById(id) {
+    return id ? productos.value.find(p => p.id == id) : null;
+}
 
 async function onSixpackImg(e) {
     const file = e.target.files[0];
@@ -977,16 +1017,38 @@ function barColor(p) {
             </div>
             <div class="space-y-2">
               <div v-for="(comp, i) in sixpackForm.componentes" :key="i" class="flex gap-2 items-center">
-                <select v-model="comp.producto_id" required
-                  class="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white">
-                  <option value="">Seleccionar producto...</option>
-                  <option v-for="p in productos" :key="p.id" :value="p.id">{{ p.nombre }}</option>
-                </select>
-                <div class="flex items-center gap-1 flex-shrink-0" style="min-width:110px;">
+
+                <!-- Custom product selector -->
+                <div class="relative flex-1">
+                  <button type="button" @click.stop="toggleCompDropdown(i, $event)"
+                    class="w-full flex items-center gap-2 border rounded-lg px-2 py-1.5 text-xs bg-white text-left transition-colors"
+                    :class="openCompIndex === i ? 'border-purple-400 ring-2 ring-purple-200' : 'border-gray-200 hover:border-purple-300'">
+                    <template v-if="getProductById(comp.producto_id)">
+                      <div class="w-6 h-6 rounded overflow-hidden flex-shrink-0 bg-gray-100 flex items-center justify-center">
+                        <img v-if="getProductById(comp.producto_id)?.imagen"
+                          :src="`/storage/${getProductById(comp.producto_id).imagen}`"
+                          class="w-full h-full object-cover">
+                        <svg v-else class="w-3 h-3 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/>
+                        </svg>
+                      </div>
+                      <span class="truncate font-semibold text-gray-800">{{ getProductById(comp.producto_id).nombre }}</span>
+                    </template>
+                    <span v-else class="text-gray-400">Seleccionar producto...</span>
+                    <svg class="w-3 h-3 text-gray-400 ml-auto flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/>
+                    </svg>
+                  </button>
+
+                </div>
+
+                <!-- Cantidad -->
+                <div class="flex items-center gap-1 flex-shrink-0" style="min-width:90px;">
                   <span class="text-xs text-gray-500">×</span>
                   <input v-model.number="comp.cantidad" type="number" min="1" required
-                    class="border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-center focus:outline-none focus:ring-2 focus:ring-purple-500" style="width:64px;">
+                    class="border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-center focus:outline-none focus:ring-2 focus:ring-purple-500" style="width:60px;">
                 </div>
+
                 <button type="button" @click="removeComponente(i)"
                   class="text-red-400 hover:text-red-600 text-lg font-bold leading-none flex-shrink-0 px-1"
                   :class="sixpackForm.componentes.length <= 1 ? 'opacity-30 cursor-not-allowed' : ''">&times;</button>
@@ -1010,6 +1072,48 @@ function barColor(p) {
         </form>
       </div>
     </div>
+  </Teleport>
+
+  <!-- Dropdown componentes (teleportado a body para evitar clipping del overflow del modal) -->
+  <Teleport to="body">
+    <template v-if="openCompIndex >= 0 && showSixpackModal">
+      <div class="fixed inset-0" :style="{ zIndex: 9998 }" @click="openCompIndex = -1"></div>
+      <div class="fixed bg-white border border-gray-200 rounded-xl shadow-2xl overflow-hidden"
+        :style="{ zIndex: 9999, top: compDropdownPos.top + 'px', left: compDropdownPos.left + 'px', width: compDropdownPos.width + 'px' }">
+        <div class="p-2 border-b border-gray-100">
+          <div class="relative">
+            <svg class="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+            </svg>
+            <input v-model="compSearch[openCompIndex]" type="text" placeholder="Buscar producto..."
+              class="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500"
+              @click.stop autocomplete="off">
+          </div>
+        </div>
+        <div class="overflow-y-auto" style="max-height:220px;">
+          <div v-if="!filteredProductsForComp(openCompIndex).length" class="px-3 py-5 text-center text-xs text-gray-400">Sin resultados</div>
+          <button v-for="p in filteredProductsForComp(openCompIndex)" :key="p.id" type="button"
+            @click.stop="selectComp(openCompIndex, p.id)"
+            :class="['flex items-center gap-2 w-full px-3 py-2 text-xs text-left transition-colors',
+              sixpackForm.componentes[openCompIndex]?.producto_id == p.id ? 'bg-purple-50' : 'hover:bg-purple-50/60']">
+            <div class="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0 bg-gray-100 flex items-center justify-center">
+              <img v-if="p.imagen" :src="`/storage/${p.imagen}`" class="w-full h-full object-cover">
+              <svg v-else class="w-3.5 h-3.5 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/>
+              </svg>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="font-semibold text-gray-800 truncate">{{ p.nombre }}</p>
+              <p class="text-gray-400 truncate font-mono" style="font-size:10px;">{{ p.codigo_barras ?? '—' }}</p>
+            </div>
+            <svg v-if="sixpackForm.componentes[openCompIndex]?.producto_id == p.id"
+              class="w-3.5 h-3.5 flex-shrink-0" style="color:#7c3aed;" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </template>
   </Teleport>
 
 </template>
