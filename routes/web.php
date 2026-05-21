@@ -80,6 +80,7 @@ Route::post('/logout', function () {
 // LANDING PÚBLICA
 // ============================================
 Route::get('/', [LandingController::class, 'index'])->name('landing');
+Route::get('/producto/{id}', [LandingController::class, 'producto'])->name('producto.detalle');
 
 Route::post('/pedido/whatsapp', function () {
     $datos = request()->validate([

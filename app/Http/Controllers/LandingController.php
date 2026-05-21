@@ -36,4 +36,21 @@ class LandingController extends Controller
 
         return view('landing.index', compact('sucursal', 'productos', 'categorias', 'whatsapp'));
     }
+
+    public function producto(int $id)
+    {
+        $producto = DB::table('productos')
+            ->leftJoin('categorias', 'productos.categoria_id', '=', 'categorias.id')
+            ->select('productos.*', 'categorias.nombre as categoria_nombre')
+            ->where('productos.id', $id)
+            ->where('productos.activo', true)
+            ->whereNull('productos.deleted_at')
+            ->first();
+
+        abort_if(!$producto, 404);
+
+        $whatsapp = Configuracion::get('whatsapp', '59168289548');
+
+        return view('landing.producto', compact('producto', 'whatsapp'));
+    }
 }

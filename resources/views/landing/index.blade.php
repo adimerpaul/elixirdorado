@@ -207,6 +207,18 @@
         .cat-scroll::-webkit-scrollbar { height: 4px; }
         .cat-scroll::-webkit-scrollbar-thumb { background: rgba(212,165,116,0.3); border-radius: 2px; }
 
+        /* ── CARD ACTIONS ── */
+        .card-actions { display: flex; gap: 4px; align-items: stretch; margin-top: 10px; }
+        .card-actions .btn-agregar { margin-top: 0; flex: 1; }
+        .btn-detalles {
+            flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+            padding: 0 11px; border-radius: 12px; font-size: 13px; cursor: pointer;
+            border: 1px solid rgba(212,165,116,0.25); background: rgba(212,165,116,0.06);
+            color: rgba(212,165,116,0.7); text-decoration: none;
+            transition: all .2s ease;
+        }
+        .btn-detalles:hover { background: rgba(212,165,116,0.18); color: var(--gold-light); border-color: var(--gold); }
+
         footer { background: #06060a; padding: 40px 24px 110px; }
 
         @media (max-width: 400px) {
@@ -379,11 +391,16 @@
                                     <span class="product-stock">En stock</span>
                                 @endif
                             </div>
-                            <button class="btn-agregar default"
-                                    id="btn-{{ $p->id }}"
-                                    onclick="agregarAlCarrito({{ $p->id }}, '{{ addslashes($p->nombre) }}', {{ $p->precio_venta }})">
-                                <i class="fas fa-plus text-xs"></i> Agregar
-                            </button>
+                            <div class="card-actions">
+                                <button class="btn-agregar default"
+                                        id="btn-{{ $p->id }}"
+                                        onclick="agregarAlCarrito({{ $p->id }}, '{{ addslashes($p->nombre) }}', {{ $p->precio_venta }})">
+                                    <i class="fas fa-plus text-xs"></i> Agregar
+                                </button>
+                                <a href="/producto/{{ $p->id }}" class="btn-detalles" title="Ver detalles">
+                                    <i class="fas fa-eye text-xs"></i>
+                                </a>
+                            </div>
                         </div>
                     </div>
                 @endforeach
@@ -504,10 +521,18 @@
 
 <script>
 // ══════════════════════════════════════════════
-// CARRITO
+// CARRITO  (persistido en localStorage)
 // ══════════════════════════════════════════════
-const carrito = {}; // { id: { nombre, precio, qty } }
+let carrito = {};
+(function() {
+    try { carrito = JSON.parse(localStorage.getItem('elixir_carrito') || '{}'); } catch(e) {}
+})();
+
 let carritoAbierto = false;
+
+function saveCarrito() {
+    try { localStorage.setItem('elixir_carrito', JSON.stringify(carrito)); } catch(e) {}
+}
 
 function agregarAlCarrito(id, nombre, precio) {
     if (carrito[id]) {
@@ -515,6 +540,7 @@ function agregarAlCarrito(id, nombre, precio) {
     } else {
         carrito[id] = { nombre, precio, qty: 1 };
     }
+    saveCarrito();
     renderCarrito();
     actualizarBoton(id, true);
     abrirCarrito();
@@ -528,6 +554,7 @@ function cambiarCantidad(id, delta) {
         delete carrito[id];
         actualizarBoton(id, false);
     }
+    saveCarrito();
     renderCarrito();
     actualizarBadge();
 }
@@ -535,6 +562,7 @@ function cambiarCantidad(id, delta) {
 function quitarDelCarrito(id) {
     delete carrito[id];
     actualizarBoton(id, false);
+    saveCarrito();
     renderCarrito();
     actualizarBadge();
 }
@@ -715,6 +743,7 @@ function resetFiltros() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    Object.keys(carrito).forEach(id => actualizarBoton(id, true));
     contarVisibles();
     renderCarrito();
 });
