@@ -260,7 +260,7 @@
                 <a href="#productos" class="btn-gold">
                     <i class="fas fa-shopping-basket"></i> Explorar catálogo
                 </a>
-                <a href="https://wa.me/59168289548" target="_blank" rel="noopener" class="btn-ghost">
+                <a href="https://wa.me/{{ $whatsapp }}" target="_blank" rel="noopener" class="btn-ghost">
                     <i class="fab fa-whatsapp"></i> Escribir directo
                 </a>
             </div>
@@ -398,7 +398,7 @@
             <div class="glass rounded-3xl py-16 px-6 text-center reveal">
                 <i class="fas fa-wine-bottle text-5xl text-amber-300/30 mb-4"></i>
                 <p class="text-amber-100/70 text-lg">El catálogo estará disponible pronto.</p>
-                <a href="https://wa.me/59168289548" target="_blank" rel="noopener" class="btn-gold mt-6 inline-flex">
+                <a href="https://wa.me/{{ $whatsapp }}" target="_blank" rel="noopener" class="btn-gold mt-6 inline-flex">
                     <i class="fab fa-whatsapp"></i> Consultar por WhatsApp
                 </a>
             </div>
@@ -448,8 +448,8 @@
             <a href="#productos" class="btn-gold">
                 <i class="fas fa-shopping-basket"></i> Ver catálogo
             </a>
-            <a href="https://wa.me/59168289548" target="_blank" rel="noopener" class="btn-ghost">
-                <i class="fab fa-whatsapp"></i> +591 6 828 9548
+            <a href="https://wa.me/{{ $whatsapp }}" target="_blank" rel="noopener" class="btn-ghost">
+                <i class="fab fa-whatsapp"></i> +{{ $whatsapp }}
             </a>
         </div>
         @if($sucursal)
@@ -664,7 +664,7 @@ function enviarPorWhatsApp() {
     msg += `💰 *Total: Bs. ${total.toLocaleString('es-BO', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}*\n\n`;
     msg += '¿Pueden confirmar disponibilidad? Gracias 🙏';
 
-    const url = 'https://wa.me/59168289548?text=' + encodeURIComponent(msg);
+    const url = 'https://wa.me/{{ $whatsapp }}?text=' + encodeURIComponent(msg);
     window.open(url, '_blank', 'noopener');
 }
 

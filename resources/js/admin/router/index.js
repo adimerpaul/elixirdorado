@@ -8,6 +8,7 @@ import SucursalVentas from '../views/sucursal/Ventas.vue';
 import SucursalCompras from '../views/sucursal/Compras.vue';
 import SucursalProveedores from '../views/sucursal/Proveedores.vue';
 import SucursalStockAlertas from '../views/sucursal/StockAlertas.vue';
+import Configuracion from '../views/Configuracion.vue';
 
 const routes = [
     {
@@ -27,6 +28,7 @@ const routes = [
             { path: 's/:sucursalId/proveedores', name: 'sucursal.proveedores', component: SucursalProveedores },
             { path: 's/:sucursalId/stock/minimo', name: 'sucursal.stock.minimo', component: SucursalStockAlertas },
             { path: 's/:sucursalId/stock/maximo', name: 'sucursal.stock.maximo', component: SucursalStockAlertas },
+            { path: 'configuracion', name: 'configuracion', component: Configuracion },
         ],
     },
 ];

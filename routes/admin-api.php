@@ -12,6 +12,21 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/dashboard', [DashboardController::class, 'index']);
 
+Route::get('configuracion', function () {
+    return response()->json(\App\Models\Configuracion::todos());
+});
+
+Route::post('configuracion', function () {
+    $datos = request()->validate([
+        'whatsapp'       => 'nullable|string|max:20',
+        'nombre_negocio' => 'nullable|string|max:100',
+    ]);
+    foreach ($datos as $clave => $valor) {
+        \App\Models\Configuracion::set($clave, $valor);
+    }
+    return response()->json(\App\Models\Configuracion::todos());
+});
+
 Route::apiResource('sucursales', SucursalController::class)
     ->parameters(['sucursales' => 'sucursal']);
 Route::patch('sucursales/{sucursal}/toggle', [SucursalController::class, 'toggle']);

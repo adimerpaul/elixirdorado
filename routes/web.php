@@ -35,7 +35,9 @@ Route::get('/tienda/{slug}', function ($slug) {
         ->orderBy('productos.nombre')
         ->get();
 
-    return view('tienda.catalogo', compact('sucursal', 'categorias', 'productos'));
+    $whatsapp = \App\Models\Configuracion::get('whatsapp', '59168289548');
+
+    return view('tienda.catalogo', compact('sucursal', 'categorias', 'productos', 'whatsapp'));
 })->name('tienda.catalogo');
 
 // ============================================
@@ -106,7 +108,8 @@ Route::post('/pedido/whatsapp', function () {
     $msg .= "Pedido:\n{$datos['pedido']}\n";
 
     $msg = mb_convert_encoding($msg, 'UTF-8', 'UTF-8');
-    $whatsappUrl = 'https://wa.me/59168289548?text=' . rawurlencode($msg);
+    $wa = \App\Models\Configuracion::get('whatsapp', '59168289548');
+    $whatsappUrl = 'https://wa.me/' . $wa . '?text=' . rawurlencode($msg);
 
     return response()->json(['ok' => true, 'url' => $whatsappUrl]);
 });

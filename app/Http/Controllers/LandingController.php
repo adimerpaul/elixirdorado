@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Configuracion;
 use App\Models\Sucursal;
 use Illuminate\Support\Facades\DB;
 
@@ -31,6 +32,8 @@ class LandingController extends Controller
                 ->get();
         }
 
-        return view('landing.index', compact('sucursal', 'productos', 'categorias'));
+        $whatsapp = Configuracion::get('whatsapp', '59168289548');
+
+        return view('landing.index', compact('sucursal', 'productos', 'categorias', 'whatsapp'));
     }
 }
