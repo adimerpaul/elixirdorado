@@ -548,8 +548,17 @@ Route::middleware('auth')->group(function () {
             DB::transaction(function () use ($id) {
                 $items = DB::table('detalle_ventas')->where('venta_id', $id)->get();
                 foreach ($items as $item) {
-                    DB::table('productos')->where('id', $item->producto_id)
-                        ->increment('stock_actual', $item->cantidad);
+                    if ($item->producto_id) {
+                        DB::table('productos')->where('id', $item->producto_id)
+                            ->increment('stock_actual', $item->cantidad);
+                    } elseif ($item->sixpack_id) {
+                        $componentes = DB::table('sixpack_componentes')
+                            ->where('sixpack_id', $item->sixpack_id)->get();
+                        foreach ($componentes as $comp) {
+                            DB::table('productos')->where('id', $comp->producto_id)
+                                ->increment('stock_actual', $comp->cantidad * $item->cantidad);
+                        }
+                    }
                 }
                 DB::table('ventas')->where('id', $id)->update([
                     'estado'     => 'cancelada',
@@ -598,8 +607,146 @@ Route::middleware('auth')->group(function () {
             ->select('productos.*', DB::raw('COALESCE(compras_activas.cantidad_compras_activas, 0) as cantidad_compras_activas'))
             ->get();
         $categorias = DB::table('categorias')->where('sucursal_id', $sucursal->id)->get();
-        return view('sucursal.productos', compact('sucursal', 'productos', 'categorias'));
+
+        $sixpacks = DB::table('sixpacks')
+            ->where('sucursal_id', $sucursal->id)
+            ->whereNull('deleted_at')
+            ->orderBy('nombre')
+            ->get()
+            ->map(function ($sp) {
+                $sp->componentes = DB::table('sixpack_componentes')
+                    ->join('productos', 'productos.id', '=', 'sixpack_componentes.producto_id')
+                    ->where('sixpack_componentes.sixpack_id', $sp->id)
+                    ->select('sixpack_componentes.*', 'productos.nombre as producto_nombre', 'productos.stock_actual')
+                    ->get();
+                return $sp;
+            });
+
+        return view('sucursal.productos', compact('sucursal', 'productos', 'categorias', 'sixpacks'));
     })->name('sucursal.productos');
+
+    // Sixpacks CRUD
+    Route::post('/{slug}/sixpacks', function ($slug) {
+        $sucursal = Sucursal::where('slug', $slug)->firstOrFail();
+
+        $datos = request()->validate([
+            'nombre'          => 'required|string|max:255',
+            'codigo_barras'   => 'nullable|string|max:100',
+            'categoria_id'    => 'nullable|integer|exists:categorias,id',
+            'precio_compra'   => 'required|numeric|min:0',
+            'precio_venta'    => 'required|numeric|min:0.01',
+            'precio_mayoreo'  => 'nullable|numeric|min:0',
+            'stock_minimo'    => 'required|integer|min:0',
+            'stock_maximo'    => 'required|integer|min:0',
+            'activo'          => 'nullable|boolean',
+            'imagen'          => 'required|image|max:2048',
+            'componentes'     => 'required|array|min:1',
+            'componentes.*.producto_id' => 'required|integer|exists:productos,id',
+            'componentes.*.cantidad'    => 'required|integer|min:1',
+        ]);
+
+        $imagenPath = request()->file('imagen')->store('sixpacks', 'public');
+
+        $sixpackId = DB::table('sixpacks')->insertGetId([
+            'sucursal_id'    => $sucursal->id,
+            'codigo_barras'  => $datos['codigo_barras'] ?? null,
+            'nombre'         => $datos['nombre'],
+            'imagen'         => $imagenPath,
+            'categoria_id'   => $datos['categoria_id'] ?? null,
+            'precio_compra'  => $datos['precio_compra'],
+            'precio_venta'   => $datos['precio_venta'],
+            'precio_mayoreo' => $datos['precio_mayoreo'] ?? 0,
+            'stock_minimo'   => $datos['stock_minimo'],
+            'stock_maximo'   => $datos['stock_maximo'],
+            'activo'         => isset($datos['activo']) ? 1 : 1,
+            'created_at'     => now(),
+            'updated_at'     => now(),
+        ]);
+
+        foreach ($datos['componentes'] as $comp) {
+            DB::table('sixpack_componentes')->insert([
+                'sixpack_id'  => $sixpackId,
+                'producto_id' => $comp['producto_id'],
+                'cantidad'    => $comp['cantidad'],
+                'created_at'  => now(),
+                'updated_at'  => now(),
+            ]);
+        }
+
+        return redirect("/{$slug}/productos")->with('success', 'Sixpack creado correctamente');
+    });
+
+    Route::put('/{slug}/sixpacks/editar', function ($slug) {
+        $sucursal = Sucursal::where('slug', $slug)->firstOrFail();
+
+        $datos = request()->validate([
+            'id'              => 'required|integer',
+            'nombre'          => 'required|string|max:255',
+            'codigo_barras'   => 'nullable|string|max:100',
+            'categoria_id'    => 'nullable|integer|exists:categorias,id',
+            'precio_compra'   => 'required|numeric|min:0',
+            'precio_venta'    => 'required|numeric|min:0.01',
+            'precio_mayoreo'  => 'nullable|numeric|min:0',
+            'stock_minimo'    => 'required|integer|min:0',
+            'stock_maximo'    => 'required|integer|min:0',
+            'activo'          => 'nullable|boolean',
+            'imagen'          => 'nullable|image|max:2048',
+            'componentes'     => 'required|array|min:1',
+            'componentes.*.producto_id' => 'required|integer|exists:productos,id',
+            'componentes.*.cantidad'    => 'required|integer|min:1',
+        ]);
+
+        $id = $datos['id'];
+        unset($datos['id'], $datos['componentes']);
+
+        $datos['activo']     = request()->has('activo') ? 1 : 0;
+        $datos['updated_at'] = now();
+
+        if (request()->hasFile('imagen')) {
+            $datos['imagen'] = request()->file('imagen')->store('sixpacks', 'public');
+        } else {
+            unset($datos['imagen']);
+        }
+
+        DB::table('sixpacks')
+            ->where('sucursal_id', $sucursal->id)
+            ->where('id', $id)
+            ->update($datos);
+
+        DB::table('sixpack_componentes')->where('sixpack_id', $id)->delete();
+        foreach (request('componentes') as $comp) {
+            DB::table('sixpack_componentes')->insert([
+                'sixpack_id'  => $id,
+                'producto_id' => $comp['producto_id'],
+                'cantidad'    => $comp['cantidad'],
+                'created_at'  => now(),
+                'updated_at'  => now(),
+            ]);
+        }
+
+        return redirect("/{$slug}/productos")->with('success', 'Sixpack actualizado correctamente');
+    });
+
+    Route::delete('/{slug}/sixpacks/{id}', function ($slug, $id) {
+        $sucursal = Sucursal::where('slug', $slug)->firstOrFail();
+        DB::table('sixpacks')
+            ->where('sucursal_id', $sucursal->id)
+            ->where('id', $id)
+            ->update(['deleted_at' => now()]);
+        return redirect("/{$slug}/productos")->with('success', 'Sixpack eliminado');
+    });
+
+    Route::patch('/{slug}/sixpacks/{id}/toggle', function ($slug, $id) {
+        $sucursal = Sucursal::where('slug', $slug)->firstOrFail();
+        $sp = DB::table('sixpacks')
+            ->where('sucursal_id', $sucursal->id)
+            ->where('id', $id)
+            ->first();
+        if (!$sp) return response()->json(['error' => 'No encontrado'], 404);
+        $nuevoEstado = !$sp->activo;
+        DB::table('sixpacks')->where('id', $id)->update(['activo' => $nuevoEstado, 'updated_at' => now()]);
+        return response()->json(['activo' => $nuevoEstado]);
+    });
 
     Route::get('/{slug}/productos/export/{format}', function ($slug, $format) {
         abort_unless(in_array($format, ['excel', 'pdf'], true), 404);
@@ -707,7 +854,27 @@ Route::middleware('auth')->group(function () {
             ->where('activo', true)
             ->whereNull('deleted_at')
             ->get();
-        return view('sucursal.pos', compact('sucursal', 'productos'));
+
+        $sixpacks = DB::table('sixpacks')
+            ->where('sucursal_id', $sucursal->id)
+            ->where('activo', true)
+            ->whereNull('deleted_at')
+            ->get()
+            ->map(function ($sp) {
+                $componentes = DB::table('sixpack_componentes')
+                    ->join('productos', 'productos.id', '=', 'sixpack_componentes.producto_id')
+                    ->where('sixpack_componentes.sixpack_id', $sp->id)
+                    ->select('sixpack_componentes.producto_id', 'sixpack_componentes.cantidad as cantidad_requerida', 'productos.stock_actual')
+                    ->get();
+                $sp->componentes = $componentes;
+                $sp->stock_disponible = $componentes->isEmpty() ? 0
+                    : (int) $componentes->min(fn ($c) => floor($c->stock_actual / $c->cantidad_requerida));
+                return $sp;
+            })
+            ->filter(fn ($sp) => $sp->stock_disponible > 0)
+            ->values();
+
+        return view('sucursal.pos', compact('sucursal', 'productos', 'sixpacks'));
     })->name('sucursal.pos');
 
     Route::post('/{slug}/pos/venta', function ($slug) {
@@ -715,12 +882,13 @@ Route::middleware('auth')->group(function () {
         $sid = $sucursal->id;
 
         $datos = request()->validate([
-            'items'                  => 'required|array',
-            'items.*.producto_id'    => 'required|integer',
-            'items.*.cantidad'       => 'required|integer|min:1',
-            'items.*.precio'         => 'required|numeric',
-            'total'                  => 'required|numeric',
-            'metodo_pago'            => 'required|in:efectivo,tarjeta,transferencia',
+            'items'               => 'required|array',
+            'items.*.producto_id' => 'nullable|integer',
+            'items.*.sixpack_id'  => 'nullable|integer',
+            'items.*.cantidad'    => 'required|integer|min:1',
+            'items.*.precio'      => 'required|numeric',
+            'total'               => 'required|numeric',
+            'metodo_pago'         => 'required|in:efectivo,tarjeta,transferencia',
         ]);
 
         $folio    = 'VENTA-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));
@@ -730,16 +898,42 @@ Route::middleware('auth')->group(function () {
 
         try {
             $ventaId = DB::transaction(function () use ($datos, $folio, $subtotal, $iva, $sid) {
-                $ids    = collect($datos['items'])->pluck('producto_id')->all();
+                // Load sixpack components for all sixpack items
+                $spComponentes = [];
+                foreach ($datos['items'] as $item) {
+                    if (!empty($item['sixpack_id'])) {
+                        $spId = $item['sixpack_id'];
+                        if (!isset($spComponentes[$spId])) {
+                            $spComponentes[$spId] = DB::table('sixpack_componentes')
+                                ->where('sixpack_id', $spId)
+                                ->get();
+                        }
+                    }
+                }
+
+                // Aggregate all product stock needs
+                $allNeeds = [];
+                foreach ($datos['items'] as $item) {
+                    if (!empty($item['producto_id'])) {
+                        $allNeeds[$item['producto_id']] = ($allNeeds[$item['producto_id']] ?? 0) + $item['cantidad'];
+                    } elseif (!empty($item['sixpack_id'])) {
+                        foreach ($spComponentes[$item['sixpack_id']] as $comp) {
+                            $allNeeds[$comp->producto_id] = ($allNeeds[$comp->producto_id] ?? 0)
+                                + ($comp->cantidad * $item['cantidad']);
+                        }
+                    }
+                }
+
+                // Lock all affected products and validate stock
                 $stocks = DB::table('productos')
                     ->where('sucursal_id', $sid)
-                    ->whereIn('id', $ids)
+                    ->whereIn('id', array_keys($allNeeds))
                     ->lockForUpdate()
                     ->pluck('stock_actual', 'id');
 
-                foreach ($datos['items'] as $item) {
-                    if (($stocks[$item['producto_id']] ?? 0) < $item['cantidad']) {
-                        throw new \RuntimeException('Stock insuficiente para producto ID ' . $item['producto_id']);
+                foreach ($allNeeds as $prodId => $needed) {
+                    if (($stocks[$prodId] ?? 0) < $needed) {
+                        throw new \RuntimeException('Stock insuficiente para producto ID ' . $prodId);
                     }
                 }
 
@@ -758,18 +952,35 @@ Route::middleware('auth')->group(function () {
                 ]);
 
                 foreach ($datos['items'] as $item) {
-                    DB::table('detalle_ventas')->insert([
-                        'venta_id'        => $ventaId,
-                        'producto_id'     => $item['producto_id'],
-                        'cantidad'        => $item['cantidad'],
-                        'precio_unitario' => $item['precio'],
-                        'subtotal'        => $item['cantidad'] * $item['precio'],
-                        'created_at'      => now(),
-                        'updated_at'      => now(),
-                    ]);
-
-                    DB::table('productos')->where('id', $item['producto_id'])
-                        ->decrement('stock_actual', $item['cantidad']);
+                    if (!empty($item['producto_id'])) {
+                        DB::table('detalle_ventas')->insert([
+                            'venta_id'        => $ventaId,
+                            'producto_id'     => $item['producto_id'],
+                            'sixpack_id'      => null,
+                            'cantidad'        => $item['cantidad'],
+                            'precio_unitario' => $item['precio'],
+                            'subtotal'        => $item['cantidad'] * $item['precio'],
+                            'created_at'      => now(),
+                            'updated_at'      => now(),
+                        ]);
+                        DB::table('productos')->where('id', $item['producto_id'])
+                            ->decrement('stock_actual', $item['cantidad']);
+                    } elseif (!empty($item['sixpack_id'])) {
+                        DB::table('detalle_ventas')->insert([
+                            'venta_id'        => $ventaId,
+                            'producto_id'     => null,
+                            'sixpack_id'      => $item['sixpack_id'],
+                            'cantidad'        => $item['cantidad'],
+                            'precio_unitario' => $item['precio'],
+                            'subtotal'        => $item['cantidad'] * $item['precio'],
+                            'created_at'      => now(),
+                            'updated_at'      => now(),
+                        ]);
+                        foreach ($spComponentes[$item['sixpack_id']] as $comp) {
+                            DB::table('productos')->where('id', $comp->producto_id)
+                                ->decrement('stock_actual', $comp->cantidad * $item['cantidad']);
+                        }
+                    }
                 }
 
                 return $ventaId;

@@ -132,8 +132,8 @@
             <!-- Productos rápidos -->
             <div class="card p-3 flex-1">
                 <div class="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wide">Productos Frecuentes</div>
-                <div class="grid grid-cols-2 gap-2 overflow-y-auto" style="max-height: 220px;">
-                    @foreach($productos->take(12) as $prod)
+                <div class="grid grid-cols-2 gap-2 overflow-y-auto" style="max-height: 170px;">
+                    @foreach($productos->take(10) as $prod)
                     <button onclick="agregarProducto({{ $prod->id }}, '{{ addslashes($prod->nombre) }}', {{ $prod->precio_venta }}, {{ $prod->stock_actual }}, '{{ addslashes($prod->codigo_barras ?? '') }}')"
                         class="pos-product-btn">
                         <span class="text-xs font-bold text-gray-800 leading-tight">{{ Str::limit($prod->nombre, 20) }}</span>
@@ -142,6 +142,22 @@
                     </button>
                     @endforeach
                 </div>
+                @if($sixpacks->count() > 0)
+                <div class="text-xs font-bold mt-3 mb-2 uppercase tracking-wide" style="color:#5b21b6;">
+                    <i class="fas fa-layer-group mr-1"></i>Sixpacks / Packs
+                </div>
+                <div class="grid grid-cols-2 gap-2 overflow-y-auto" style="max-height: 140px;">
+                    @foreach($sixpacks->take(6) as $sp)
+                    <button onclick="agregarSixpack({{ $sp->id }}, '{{ addslashes($sp->nombre) }}', {{ $sp->precio_venta }}, {{ $sp->stock_disponible }}, '{{ addslashes($sp->codigo_barras ?? '') }}')"
+                        class="pos-product-btn" style="border-color:#c4b5fd;">
+                        <span class="text-xs" style="color:#5b21b6;font-weight:700;letter-spacing:.02em;">PACK</span>
+                        <span class="text-xs font-bold text-gray-800 leading-tight">{{ Str::limit($sp->nombre, 18) }}</span>
+                        <span class="font-bold text-sm mt-1" style="color:#7c3aed;">Bs. {{ number_format($sp->precio_venta, 2) }}</span>
+                        <span class="text-xs text-gray-400">Disp: {{ $sp->stock_disponible }}</span>
+                    </button>
+                    @endforeach
+                </div>
+                @endif
             </div>
         </div>
     </div>
@@ -219,6 +235,21 @@
                         </td>
                     </tr>
                     @endforeach
+                    @foreach($sixpacks as $sp)
+                    <tr class="table-row border-b" data-nombre="{{ strtolower($sp->nombre) }}" data-codigo="{{ $sp->codigo_barras ?? '' }}" style="background:#faf5ff;">
+                        <td class="p-2 font-mono text-xs text-gray-400">{{ $sp->codigo_barras ?? '-' }}</td>
+                        <td class="p-2 font-medium" style="color:#5b21b6;">
+                            <span class="text-xs font-bold mr-1 px-1 rounded" style="background:#ede9fe;color:#5b21b6;">PACK</span>
+                            {{ $sp->nombre }}
+                        </td>
+                        <td class="p-2 text-right font-bold" style="color:#7c3aed;">Bs. {{ number_format($sp->precio_venta, 2) }}</td>
+                        <td class="p-2 text-right text-gray-700">{{ $sp->stock_disponible }}</td>
+                        <td class="p-2">
+                            <button onclick="agregarSixpack({{ $sp->id }}, '{{ addslashes($sp->nombre) }}', {{ $sp->precio_venta }}, {{ $sp->stock_disponible }}, '{{ addslashes($sp->codigo_barras ?? '') }}'); document.getElementById('modal-busqueda').classList.add('hidden');"
+                                class="px-3 py-1 text-xs rounded font-bold text-white" style="background:#7c3aed;">Agregar</button>
+                        </td>
+                    </tr>
+                    @endforeach
                 </tbody>
             </table>
         </div>
@@ -261,6 +292,7 @@ let carrito = [];
 let metodoPago = 'efectivo';
 let modoMayoreo = false;
 const productosDB = @json($productos);
+const sixpacksDB  = @json($sixpacks);
 
 document.getElementById('buscar-producto').addEventListener('keydown', function(e) {
     if (e.key === 'Enter') {
@@ -268,8 +300,12 @@ document.getElementById('buscar-producto').addEventListener('keydown', function(
         const codigo = this.value.trim();
         if (!codigo) { abrirBusquedaAvanzada(); return; }
         const prod = productosDB.find(p => p.codigo_barras == codigo || String(p.id) == codigo);
+        const sp   = !prod && sixpacksDB.find(s => s.codigo_barras == codigo);
         if (prod) {
             agregarProducto(prod.id, prod.nombre, prod.precio_venta, prod.stock_actual, prod.codigo_barras || '');
+            this.value = '';
+        } else if (sp) {
+            agregarSixpack(sp.id, sp.nombre, sp.precio_venta, sp.stock_disponible, sp.codigo_barras || '');
             this.value = '';
         } else {
             document.getElementById('busqueda-avanzada-input').value = codigo;
@@ -306,14 +342,34 @@ function agregarProducto(id, nombre, precio, stock, codigo) {
     let p = parseFloat(precio);
     if (!isFinite(p) || p <= 0) { mostrarAlerta('Producto sin precio válido', 'error'); return; }
     if (modoMayoreo) p = parseFloat((p * 0.9).toFixed(2));
-    let item = carrito.find(i => i.id === id);
+    let item = carrito.find(i => i.tipo === 'producto' && i.id === id);
     if (item) {
-        if (item.cantidad + 1 > stock) { mostrarAlerta('Stock insuficiente', 'error'); return; }
+        if (item.cantidad + 1 > item.stock) { mostrarAlerta('Stock insuficiente', 'error'); return; }
         item.cantidad++;
         item.subtotal = parseFloat((item.cantidad * item.precio).toFixed(2));
     } else {
         if (stock < 1) { mostrarAlerta('Sin stock disponible', 'error'); return; }
-        carrito.push({ id, nombre, precio: p, cantidad: 1, subtotal: p, stock: parseInt(stock), codigo: codigo || '' });
+        carrito.push({ tipo: 'producto', id, nombre, precio: p, cantidad: 1, subtotal: p, stock: parseInt(stock), codigo: codigo || '' });
+    }
+    renderizarCarrito();
+    document.getElementById('buscar-producto').focus();
+}
+
+function agregarSixpack(id, nombre, precio, stockDisponible, codigo) {
+    let p = parseFloat(precio);
+    if (!isFinite(p) || p <= 0) { mostrarAlerta('Sixpack sin precio válido', 'error'); return; }
+    if (modoMayoreo) {
+        const sp = sixpacksDB.find(s => s.id === id);
+        p = sp && parseFloat(sp.precio_mayoreo) > 0 ? parseFloat(sp.precio_mayoreo) : parseFloat((p * 0.9).toFixed(2));
+    }
+    let item = carrito.find(i => i.tipo === 'sixpack' && i.id === id);
+    if (item) {
+        if (item.cantidad + 1 > item.stock) { mostrarAlerta('Stock insuficiente para este pack', 'error'); return; }
+        item.cantidad++;
+        item.subtotal = parseFloat((item.cantidad * item.precio).toFixed(2));
+    } else {
+        if (stockDisponible < 1) { mostrarAlerta('Sin stock disponible para este pack', 'error'); return; }
+        carrito.push({ tipo: 'sixpack', id, nombre, precio: p, cantidad: 1, subtotal: p, stock: parseInt(stockDisponible), codigo: codigo || '' });
     }
     renderizarCarrito();
     document.getElementById('buscar-producto').focus();
@@ -328,12 +384,18 @@ function renderizarCarrito() {
         document.getElementById('total-items-count').textContent = '0';
         actualizarTotal(); return;
     }
-    container.innerHTML = carrito.map((item, idx) => `
-        <div class="grid items-center px-3 py-2 table-row border-b border-gray-100 text-sm"
+    container.innerHTML = carrito.map((item, idx) => {
+        const esPack = item.tipo === 'sixpack';
+        const nombreDisplay = esPack
+            ? `<span class="text-xs font-bold mr-1 px-1 rounded" style="background:#ede9fe;color:#5b21b6;">PACK</span>${item.nombre}`
+            : item.nombre;
+        const precioColor = esPack ? 'style="color:#7c3aed;"' : '';
+        return `
+        <div class="grid items-center px-3 py-2 table-row border-b border-gray-100 text-sm${esPack ? ' bg-purple-50' : ''}"
              style="grid-template-columns: 130px 1fr 110px 90px 110px 90px 40px;">
             <span class="text-gray-400 font-mono text-xs truncate">${item.codigo || '-'}</span>
-            <span class="font-medium text-gray-800 truncate">${item.nombre}</span>
-            <span class="text-right text-gray-700">Bs. ${item.precio.toFixed(2)}</span>
+            <span class="font-medium text-gray-800 truncate">${nombreDisplay}</span>
+            <span class="text-right text-gray-700" ${precioColor}>Bs. ${item.precio.toFixed(2)}</span>
             <div class="flex items-center justify-center gap-1">
                 <button onclick="cambiarCantidad(${idx},-1)" class="w-5 h-5 bg-red-100 text-red-700 rounded text-xs font-bold hover:bg-red-200">-</button>
                 <span class="w-8 text-center font-bold text-xs">${item.cantidad}</span>
@@ -342,7 +404,8 @@ function renderizarCarrito() {
             <span class="text-right font-bold text-blue-900">Bs. ${item.subtotal.toFixed(2)}</span>
             <span class="text-right text-gray-500 text-xs">${item.stock}</span>
             <button onclick="eliminarItem(${idx})" class="text-red-400 hover:text-red-600 text-center"><i class="fas fa-times text-xs"></i></button>
-        </div>`).join('');
+        </div>`;
+    }).join('');
     document.getElementById('total-items-count').textContent = carrito.reduce((s,i) => s+i.cantidad, 0);
     actualizarTotal();
 }
@@ -416,7 +479,10 @@ async function procesarVenta() {
 
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
     const payload = {
-        items: carrito.map(i => ({producto_id:i.id, cantidad:i.cantidad, precio:i.precio})),
+        items: carrito.map(i => i.tipo === 'sixpack'
+            ? { sixpack_id: i.id, cantidad: i.cantidad, precio: i.precio }
+            : { producto_id: i.id, cantidad: i.cantidad, precio: i.precio }
+        ),
         total, metodo_pago: metodoPago,
     };
     try {

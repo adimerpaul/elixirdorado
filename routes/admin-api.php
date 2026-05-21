@@ -43,6 +43,130 @@ Route::prefix('sucursales/{sucursal}')->group(function () {
     Route::post('proveedores',                   [ProveedorController::class, 'store']);
     Route::put('proveedores/{proveedor}',        [ProveedorController::class, 'update']);
     Route::delete('proveedores/{proveedor}',     [ProveedorController::class, 'destroy']);
+
+    Route::get('sixpacks', function ($sucursal) {
+        $sixpacks = \Illuminate\Support\Facades\DB::table('sixpacks')
+            ->where('sucursal_id', $sucursal)
+            ->whereNull('deleted_at')
+            ->orderBy('nombre')
+            ->get()
+            ->map(function ($sp) {
+                $sp->componentes = \Illuminate\Support\Facades\DB::table('sixpack_componentes')
+                    ->join('productos', 'productos.id', '=', 'sixpack_componentes.producto_id')
+                    ->where('sixpack_componentes.sixpack_id', $sp->id)
+                    ->select('sixpack_componentes.*', 'productos.nombre as producto_nombre', 'productos.stock_actual')
+                    ->get();
+                return $sp;
+            });
+        return response()->json(['sixpacks' => $sixpacks]);
+    });
+
+    Route::post('sixpacks', function ($sucursal) {
+        $datos = request()->validate([
+            'nombre'          => 'required|string|max:255',
+            'codigo_barras'   => 'nullable|string|max:100',
+            'categoria_id'    => 'nullable|integer',
+            'precio_compra'   => 'required|numeric|min:0',
+            'precio_venta'    => 'required|numeric|min:0.01',
+            'precio_mayoreo'  => 'nullable|numeric|min:0',
+            'stock_minimo'    => 'nullable|integer|min:0',
+            'stock_maximo'    => 'nullable|integer|min:0',
+            'activo'          => 'nullable',
+            'imagen'          => 'nullable|image|max:2048',
+            'componentes'     => 'required|array|min:1',
+            'componentes.*.producto_id' => 'required|integer|exists:productos,id',
+            'componentes.*.cantidad'    => 'required|integer|min:1',
+        ]);
+
+        $imagenPath = request()->hasFile('imagen')
+            ? request()->file('imagen')->store('sixpacks', 'public') : null;
+
+        $id = \Illuminate\Support\Facades\DB::table('sixpacks')->insertGetId([
+            'sucursal_id'    => $sucursal,
+            'codigo_barras'  => $datos['codigo_barras'] ?? null,
+            'nombre'         => $datos['nombre'],
+            'imagen'         => $imagenPath,
+            'categoria_id'   => $datos['categoria_id'] ?? null,
+            'precio_compra'  => $datos['precio_compra'],
+            'precio_venta'   => $datos['precio_venta'],
+            'precio_mayoreo' => $datos['precio_mayoreo'] ?? 0,
+            'stock_minimo'   => $datos['stock_minimo'] ?? 1,
+            'stock_maximo'   => $datos['stock_maximo'] ?? 100,
+            'activo'         => request('activo') ? 1 : 0,
+            'created_at'     => now(),
+            'updated_at'     => now(),
+        ]);
+
+        foreach (request('componentes') as $comp) {
+            \Illuminate\Support\Facades\DB::table('sixpack_componentes')->insert([
+                'sixpack_id'  => $id,
+                'producto_id' => $comp['producto_id'],
+                'cantidad'    => $comp['cantidad'],
+                'created_at'  => now(),
+                'updated_at'  => now(),
+            ]);
+        }
+
+        return response()->json(\Illuminate\Support\Facades\DB::table('sixpacks')->find($id), 201);
+    });
+
+    Route::post('sixpacks/{id}', function ($sucursal, $id) {
+        $datos = request()->validate([
+            'nombre'          => 'required|string|max:255',
+            'codigo_barras'   => 'nullable|string|max:100',
+            'categoria_id'    => 'nullable|integer',
+            'precio_compra'   => 'required|numeric|min:0',
+            'precio_venta'    => 'required|numeric|min:0.01',
+            'precio_mayoreo'  => 'nullable|numeric|min:0',
+            'stock_minimo'    => 'nullable|integer|min:0',
+            'stock_maximo'    => 'nullable|integer|min:0',
+            'activo'          => 'nullable',
+            'imagen'          => 'nullable|image|max:2048',
+            'componentes'     => 'required|array|min:1',
+            'componentes.*.producto_id' => 'required|integer|exists:productos,id',
+            'componentes.*.cantidad'    => 'required|integer|min:1',
+        ]);
+
+        $update = [
+            'codigo_barras'  => $datos['codigo_barras'] ?? null,
+            'nombre'         => $datos['nombre'],
+            'categoria_id'   => $datos['categoria_id'] ?? null,
+            'precio_compra'  => $datos['precio_compra'],
+            'precio_venta'   => $datos['precio_venta'],
+            'precio_mayoreo' => $datos['precio_mayoreo'] ?? 0,
+            'stock_minimo'   => $datos['stock_minimo'] ?? 1,
+            'stock_maximo'   => $datos['stock_maximo'] ?? 100,
+            'activo'         => request('activo') ? 1 : 0,
+            'updated_at'     => now(),
+        ];
+
+        if (request()->hasFile('imagen')) {
+            $update['imagen'] = request()->file('imagen')->store('sixpacks', 'public');
+        }
+
+        \Illuminate\Support\Facades\DB::table('sixpacks')
+            ->where('sucursal_id', $sucursal)->where('id', $id)->update($update);
+
+        \Illuminate\Support\Facades\DB::table('sixpack_componentes')->where('sixpack_id', $id)->delete();
+        foreach (request('componentes') as $comp) {
+            \Illuminate\Support\Facades\DB::table('sixpack_componentes')->insert([
+                'sixpack_id'  => $id,
+                'producto_id' => $comp['producto_id'],
+                'cantidad'    => $comp['cantidad'],
+                'created_at'  => now(),
+                'updated_at'  => now(),
+            ]);
+        }
+
+        return response()->json(\Illuminate\Support\Facades\DB::table('sixpacks')->find($id));
+    });
+
+    Route::delete('sixpacks/{id}', function ($sucursal, $id) {
+        \Illuminate\Support\Facades\DB::table('sixpacks')
+            ->where('sucursal_id', $sucursal)->where('id', $id)
+            ->update(['deleted_at' => now()]);
+        return response()->json(['ok' => true]);
+    });
 });
 
 Route::get('/me', function () {
