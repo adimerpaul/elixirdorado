@@ -39,9 +39,11 @@ Route::prefix('sucursales/{sucursal}')->group(function () {
     Route::get('productos/export/excel',       [ProductoController::class, 'exportExcel']);
     Route::get('productos/export/pdf',         [ProductoController::class, 'exportPdf']);
     Route::get('productos/{id}/historial',     [ProductoController::class, 'historial']);
-    Route::post('productos',         [ProductoController::class, 'store']);
-    Route::post('productos/{id}',    [ProductoController::class, 'update']);
-    Route::delete('productos/{id}',  [ProductoController::class, 'destroy']);
+    Route::post('productos',                  [ProductoController::class, 'store']);
+    Route::post('productos/{id}',             [ProductoController::class, 'update']);
+    Route::post('productos/{id}/imagen',          [ProductoController::class, 'updateImagen']);
+    Route::post('productos/{id}/imagen-url',      [ProductoController::class, 'updateImagenFromUrl']);
+    Route::delete('productos/{id}',           [ProductoController::class, 'destroy']);
 
     Route::get('ventas',                  [VentaController::class, 'index']);
     Route::post('ventas',                 [VentaController::class, 'store']);

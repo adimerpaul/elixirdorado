@@ -137,7 +137,7 @@ const subOff   = 'text-slate-400 hover:text-white hover:bg-slate-700';
         <nav class="flex-1 overflow-y-auto px-3 py-4 space-y-4">
 
           <!-- ADMINISTRACIÓN -->
-          <div v-if="auth.can('dashboard') || auth.can('sucursales') || auth.can('usuarios')">
+          <div v-if="auth.can('dashboard') || auth.can('sucursales') || auth.can('usuarios') || auth.can('configuracion')">
             <p class="text-slate-500 text-xs font-semibold uppercase tracking-wider px-2 mb-2">Administración</p>
             <ul class="space-y-0.5">
 
@@ -171,7 +171,7 @@ const subOff   = 'text-slate-400 hover:text-white hover:bg-slate-700';
                 </RouterLink>
               </li>
 
-              <li>
+              <li v-if="auth.can('configuracion')">
                 <RouterLink to="/admin/configuracion" :class="[navBase, route.path === '/admin/configuracion' ? navOn : navOff]"
                   @click="closeSidebarOnMobile">
                   <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
@@ -209,7 +209,7 @@ const subOff   = 'text-slate-400 hover:text-white hover:bg-slate-700';
 
                 <!-- Sub-items -->
                 <ul v-if="openGroups[s.id]" class="mt-0.5 space-y-0.5">
-                  <li>
+                  <li v-if="auth.canSucursalModule(s.id, 'productos')">
                     <RouterLink :to="`/admin/s/${s.id}/productos`"
                       :class="[subBase, route.path === `/admin/s/${s.id}/productos` ? subOn : subOff]"
                       @click="closeSidebarOnMobile">
@@ -219,7 +219,7 @@ const subOff   = 'text-slate-400 hover:text-white hover:bg-slate-700';
                       Productos
                     </RouterLink>
                   </li>
-                  <li>
+                  <li v-if="auth.canSucursalModule(s.id, 'ventas.nueva')">
                     <RouterLink :to="`/admin/s/${s.id}/ventas/nueva`"
                       :class="[subBase, route.path === `/admin/s/${s.id}/ventas/nueva` ? subOn : subOff]"
                       @click="closeSidebarOnMobile">
@@ -229,7 +229,7 @@ const subOff   = 'text-slate-400 hover:text-white hover:bg-slate-700';
                       Nueva venta
                     </RouterLink>
                   </li>
-                  <li>
+                  <li v-if="auth.canSucursalModule(s.id, 'ventas.historial')">
                     <RouterLink :to="`/admin/s/${s.id}/ventas/historial`"
                       :class="[subBase, route.path === `/admin/s/${s.id}/ventas/historial` ? subOn : subOff]"
                       @click="closeSidebarOnMobile">
@@ -239,7 +239,7 @@ const subOff   = 'text-slate-400 hover:text-white hover:bg-slate-700';
                       Historial ventas
                     </RouterLink>
                   </li>
-                  <li>
+                  <li v-if="auth.canSucursalModule(s.id, 'compras.nueva')">
                     <RouterLink :to="`/admin/s/${s.id}/compras/nueva`"
                       :class="[subBase, route.path === `/admin/s/${s.id}/compras/nueva` ? subOn : subOff]"
                       @click="closeSidebarOnMobile">
@@ -249,7 +249,7 @@ const subOff   = 'text-slate-400 hover:text-white hover:bg-slate-700';
                       Compra nueva
                     </RouterLink>
                   </li>
-                  <li>
+                  <li v-if="auth.canSucursalModule(s.id, 'compras.historial')">
                     <RouterLink :to="`/admin/s/${s.id}/compras/historial`"
                       :class="[subBase, route.path === `/admin/s/${s.id}/compras/historial` ? subOn : subOff]"
                       @click="closeSidebarOnMobile">
@@ -259,7 +259,7 @@ const subOff   = 'text-slate-400 hover:text-white hover:bg-slate-700';
                       Historial compras
                     </RouterLink>
                   </li>
-                  <li>
+                  <li v-if="auth.canSucursalModule(s.id, 'proveedores')">
                     <RouterLink :to="`/admin/s/${s.id}/proveedores`"
                       :class="[subBase, route.path === `/admin/s/${s.id}/proveedores` ? subOn : subOff]"
                       @click="closeSidebarOnMobile">
@@ -269,7 +269,7 @@ const subOff   = 'text-slate-400 hover:text-white hover:bg-slate-700';
                       Proveedores
                     </RouterLink>
                   </li>
-                  <li>
+                  <li v-if="auth.canSucursalModule(s.id, 'stock.minimo')">
                     <RouterLink :to="`/admin/s/${s.id}/stock/minimo`"
                       :class="[subBase, route.path === `/admin/s/${s.id}/stock/minimo` ? subOn : subOff]"
                       @click="closeSidebarOnMobile">
@@ -279,7 +279,7 @@ const subOff   = 'text-slate-400 hover:text-white hover:bg-slate-700';
                       Stock Mínimo
                     </RouterLink>
                   </li>
-                  <li>
+                  <li v-if="auth.canSucursalModule(s.id, 'stock.maximo')">
                     <RouterLink :to="`/admin/s/${s.id}/stock/maximo`"
                       :class="[subBase, route.path === `/admin/s/${s.id}/stock/maximo` ? subOn : subOff]"
                       @click="closeSidebarOnMobile">
