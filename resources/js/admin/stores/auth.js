@@ -24,16 +24,29 @@ export const useAuthStore = defineStore('auth', () => {
 
     const isSuperAdmin = computed(() => user.value?.rol === 'super_admin');
 
+    const SUCURSAL_MODULES = [
+        'productos', 'ventas.nueva', 'ventas.historial',
+        'compras.nueva', 'compras.historial', 'proveedores',
+        'stock.minimo', 'stock.maximo',
+    ];
+
     function can(perm) {
         if (isSuperAdmin.value) return true;
         const perms = user.value?.permisos ?? [];
         return perms.includes('*') || perms.includes(perm);
     }
 
+    function canSucursalModule(sucursalId, module) {
+        return can(`sucursal.${sucursalId}`) || can(`sucursal.${sucursalId}.${module}`);
+    }
+
     const sucursalesMenu = computed(() => {
         if (isSuperAdmin.value) return sucursales.value;
-        return sucursales.value.filter(s => can(`sucursal.${s.id}`));
+        return sucursales.value.filter(s =>
+            can(`sucursal.${s.id}`) ||
+            SUCURSAL_MODULES.some(m => can(`sucursal.${s.id}.${m}`))
+        );
     });
 
-    return { user, sucursales, loaded, fetchUser, isSuperAdmin, can, sucursalesMenu };
+    return { user, sucursales, loaded, fetchUser, isSuperAdmin, can, canSucursalModule, sucursalesMenu };
 });

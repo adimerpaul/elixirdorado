@@ -116,19 +116,54 @@ async function remove(u) {
 const displayName = u => u.nickname || u.name;
 const initials    = u => u.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
+const SUCURSAL_MODULES = [
+    { key: 'productos',         label: 'Productos' },
+    { key: 'ventas.nueva',      label: 'Nueva Venta' },
+    { key: 'ventas.historial',  label: 'Historial Ventas' },
+    { key: 'compras.nueva',     label: 'Compra Nueva' },
+    { key: 'compras.historial', label: 'Historial Compras' },
+    { key: 'proveedores',       label: 'Proveedores' },
+    { key: 'stock.minimo',      label: 'Stock Mínimo' },
+    { key: 'stock.maximo',      label: 'Stock Máximo' },
+];
+
+const moduleLabels = Object.fromEntries(SUCURSAL_MODULES.map(m => [m.key, m.label]));
+
 const permLabels = {
-    dashboard:  'Dashboard',
-    sucursales: 'Sucursales',
-    usuarios:   'Usuarios',
+    dashboard:     'Dashboard',
+    sucursales:    'Sucursales',
+    usuarios:      'Usuarios',
+    configuracion: 'Configuración',
 };
+
 function permLabel(name) {
     if (permLabels[name]) return permLabels[name];
     if (name.startsWith('sucursal.')) {
-        const id = name.split('.')[1];
-        const s  = sucursales.value.find(s => s.id == id);
-        return s ? s.nombre : name;
+        const parts     = name.split('.');
+        const id        = parts[1];
+        const moduleKey = parts.slice(2).join('.');
+        const s         = sucursales.value.find(s => s.id == id);
+        const sucNombre = s ? s.nombre : `S${id}`;
+        if (!moduleKey) return sucNombre;
+        return `${sucNombre} › ${moduleLabels[moduleKey] ?? moduleKey}`;
     }
     return name;
+}
+
+function allBranchPermsChecked(sucursalId) {
+    return SUCURSAL_MODULES.every(m => hasPerm(`sucursal.${sucursalId}.${m.key}`));
+}
+function someBranchPermsChecked(sucursalId) {
+    return SUCURSAL_MODULES.some(m => hasPerm(`sucursal.${sucursalId}.${m.key}`));
+}
+function toggleAllBranchPerms(sucursalId) {
+    const allChecked = allBranchPermsChecked(sucursalId);
+    SUCURSAL_MODULES.forEach(m => {
+        const perm = `sucursal.${sucursalId}.${m.key}`;
+        const idx  = form.value.permisos.indexOf(perm);
+        if (allChecked) { if (idx >= 0) form.value.permisos.splice(idx, 1); }
+        else            { if (idx < 0)  form.value.permisos.push(perm); }
+    });
 }
 
 onMounted(load);
@@ -335,13 +370,14 @@ onMounted(load);
             <div :class="esSuperAdmin ? 'opacity-40 pointer-events-none select-none' : ''">
 
               <!-- Módulos globales -->
-              <div class="mb-3">
+              <div class="mb-4">
                 <p class="text-xs font-semibold text-gray-500 mb-1.5">Módulos del sistema</p>
-                <div class="space-y-1.5">
+                <div class="grid grid-cols-2 gap-1.5">
                   <div v-for="p in [
-                      { name: 'dashboard',  label: 'Dashboard' },
-                      { name: 'sucursales', label: 'Gestión de Sucursales' },
-                      { name: 'usuarios',   label: 'Gestión de Usuarios' },
+                      { name: 'dashboard',     label: 'Dashboard' },
+                      { name: 'sucursales',    label: 'Sucursales' },
+                      { name: 'usuarios',      label: 'Usuarios' },
+                      { name: 'configuracion', label: 'Configuración' },
                     ]" :key="p.name"
                     class="flex items-center gap-2 cursor-pointer group"
                     @click="togglePerm(p.name)">
@@ -356,21 +392,45 @@ onMounted(load);
                 </div>
               </div>
 
-              <!-- Acceso a sucursales -->
-              <div v-if="sucursales.length">
-                <p class="text-xs font-semibold text-gray-500 mb-1.5">Acceso a sucursales</p>
-                <div class="space-y-1.5">
-                  <div v-for="s in sucursales" :key="s.id"
-                    class="flex items-center gap-2 cursor-pointer group"
-                    @click="togglePerm(`sucursal.${s.id}`)">
-                    <div :class="['w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors',
-                      hasPerm(`sucursal.${s.id}`) ? 'bg-amber-500 border-amber-500' : 'border-gray-300 group-hover:border-amber-400']">
-                      <svg v-if="hasPerm(`sucursal.${s.id}`)" class="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/>
-                      </svg>
-                    </div>
-                    <span class="text-xs text-gray-700 select-none">{{ s.nombre }}</span>
+              <!-- Permisos por sucursal -->
+              <div v-if="sucursales.length" class="space-y-3">
+                <p class="text-xs font-semibold text-gray-500">Permisos por sucursal</p>
+
+                <div v-for="s in sucursales" :key="s.id"
+                  class="border border-gray-100 rounded-lg overflow-hidden">
+
+                  <!-- Cabecera sucursal con "seleccionar todo" -->
+                  <div class="flex items-center justify-between bg-gray-50 px-3 py-1.5">
+                    <span class="text-xs font-semibold text-gray-700">{{ s.nombre }}</span>
+                    <button type="button"
+                      @click="toggleAllBranchPerms(s.id)"
+                      :class="['text-xs px-2 py-0.5 rounded font-medium transition-colors',
+                        allBranchPermsChecked(s.id)
+                          ? 'bg-amber-500 text-white hover:bg-amber-600'
+                          : someBranchPermsChecked(s.id)
+                          ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                          : 'bg-gray-200 text-gray-600 hover:bg-gray-300']">
+                      {{ allBranchPermsChecked(s.id) ? 'Quitar todo' : 'Seleccionar todo' }}
+                    </button>
                   </div>
+
+                  <!-- Módulos -->
+                  <div class="grid grid-cols-2 gap-1 p-2.5">
+                    <div v-for="m in SUCURSAL_MODULES" :key="m.key"
+                      class="flex items-center gap-1.5 cursor-pointer group"
+                      @click="togglePerm(`sucursal.${s.id}.${m.key}`)">
+                      <div :class="['w-3.5 h-3.5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors',
+                        hasPerm(`sucursal.${s.id}.${m.key}`)
+                          ? 'bg-amber-500 border-amber-500'
+                          : 'border-gray-300 group-hover:border-amber-400']">
+                        <svg v-if="hasPerm(`sucursal.${s.id}.${m.key}`)" class="w-2 h-2 text-white" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/>
+                        </svg>
+                      </div>
+                      <span class="text-xs text-gray-600 select-none leading-tight">{{ m.label }}</span>
+                    </div>
+                  </div>
+
                 </div>
               </div>
 

@@ -119,7 +119,7 @@ Route::post('/pedido/whatsapp', function () {
 // PANEL DE ADMINISTRACIÓN
 // ============================================
 
-Route::prefix('admin')->middleware(['auth', 'role:super_admin,admin'])->group(function () {
+Route::prefix('admin')->middleware(['auth', 'role:super_admin,admin,cajero'])->group(function () {
     Route::get('/setup', function () {
         if (Sucursal::count() > 0) return redirect('/admin');
         return view('admin.setup', ['errors' => session()->get('errors', new \Illuminate\Support\MessageBag)]);
@@ -170,7 +170,7 @@ Route::prefix('admin')->middleware(['auth', 'role:super_admin,admin'])->group(fu
     });
 });
 
-Route::middleware(['auth', 'role:super_admin,admin'])
+Route::middleware(['auth', 'role:super_admin,admin,cajero'])
     ->get('/admin/{any?}', fn () => view('admin.spa'))
     ->where('any', '.*');
 

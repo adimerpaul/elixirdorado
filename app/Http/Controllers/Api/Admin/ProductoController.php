@@ -11,7 +11,9 @@ use App\Models\Producto;
 use App\Models\Sucursal;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Maatwebsite\Excel\Facades\Excel;
 
 class ProductoController extends Controller
@@ -90,12 +92,14 @@ class ProductoController extends Controller
             'imagen'         => 'nullable|file|image|max:2048',
         ]);
 
-        $imagenPath = $producto->imagen;
+        $imagenPath  = $producto->imagen;
+        $imagenChanged = false;
         if ($request->hasFile('imagen')) {
             if ($imagenPath) {
                 Storage::disk('public')->delete($imagenPath);
             }
-            $imagenPath = $request->file('imagen')->store("productos/{$sucursal->slug}", 'public');
+            $imagenPath    = $request->file('imagen')->store("productos/{$sucursal->slug}", 'public');
+            $imagenChanged = true;
         }
         $producto->update([
             'codigo_barras'  => $data['codigo_barras'] ?? null,
@@ -111,7 +115,88 @@ class ProductoController extends Controller
             'activo'         => $request->has('activo') ? $request->boolean('activo') : $producto->activo,
         ]);
 
+        if ($imagenChanged && $imagenPath) {
+            $this->syncImagenASucursales($sucursal, $producto, $imagenPath);
+        }
+
         return response()->json($this->productoConCantidadActiva($producto->id));
+    }
+
+    public function updateImagen(Request $request, Sucursal $sucursal, int $id)
+    {
+        $producto = Producto::where('sucursal_id', $sucursal->id)->findOrFail($id);
+
+        $request->validate(['imagen' => 'required|file|image|max:2048']);
+
+        if ($producto->imagen) {
+            Storage::disk('public')->delete($producto->imagen);
+        }
+
+        $imagenPath = $request->file('imagen')->store("productos/{$sucursal->slug}", 'public');
+        $producto->update(['imagen' => $imagenPath]);
+
+        $this->syncImagenASucursales($sucursal, $producto, $imagenPath);
+
+        return response()->json($this->productoConCantidadActiva($producto->id));
+    }
+
+    public function updateImagenFromUrl(Request $request, Sucursal $sucursal, int $id)
+    {
+        $producto = Producto::where('sucursal_id', $sucursal->id)->findOrFail($id);
+
+        $request->validate(['url' => 'required|url|max:2048']);
+        $url = $request->input('url');
+
+        try {
+            $response = Http::timeout(15)->withHeaders([
+                'User-Agent' => 'Mozilla/5.0 (compatible; ElixirBot/1.0)',
+            ])->get($url);
+
+            if (!$response->successful()) {
+                return response()->json(['message' => 'No se pudo descargar la imagen.'], 422);
+            }
+
+            $contentType = $response->header('Content-Type') ?? '';
+            if (!str_starts_with($contentType, 'image/')) {
+                return response()->json(['message' => 'La URL no apunta a una imagen.'], 422);
+            }
+
+            $ext = match(true) {
+                str_contains($contentType, 'png')  => 'png',
+                str_contains($contentType, 'gif')  => 'gif',
+                str_contains($contentType, 'webp') => 'webp',
+                default                            => 'jpg',
+            };
+
+            if ($producto->imagen) {
+                Storage::disk('public')->delete($producto->imagen);
+            }
+
+            $path = "productos/{$sucursal->slug}/" . Str::random(40) . ".{$ext}";
+            Storage::disk('public')->put($path, $response->body());
+
+            $producto->update(['imagen' => $path]);
+            $this->syncImagenASucursales($sucursal, $producto, $path);
+
+            return response()->json($this->productoConCantidadActiva($producto->id));
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Error al descargar la imagen.'], 422);
+        }
+    }
+
+    private function syncImagenASucursales(Sucursal $sucursal, Producto $producto, string $imagenPath): void
+    {
+        if ($sucursal->id !== 1) return;
+
+        $query = Producto::where('sucursal_id', '!=', $sucursal->id);
+
+        if (!empty($producto->codigo_barras)) {
+            $query->where('codigo_barras', $producto->codigo_barras);
+        } else {
+            $query->whereRaw('LOWER(nombre) = LOWER(?)', [$producto->nombre]);
+        }
+
+        $query->update(['imagen' => $imagenPath]);
     }
 
     public function historial(Sucursal $sucursal, int $id)

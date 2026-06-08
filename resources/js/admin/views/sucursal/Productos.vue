@@ -42,6 +42,10 @@ const imagePreview = ref(null);
 const imageFile    = ref(null);
 const dragOver     = ref(false);
 
+const dragOverRowId  = ref(null);
+const uploadingRowId = ref(null);
+const dragCounters   = ref({});
+
 const emptyForm = () => ({
     codigo_barras: '', nombre: '', descripcion: '', categoria_id: '',
     precio_compra: '', precio_venta: '', precio_mayoreo: '',
@@ -122,6 +126,75 @@ function clearImage() {
     imagePreview.value = null;
     const inp = document.getElementById('imagen-input-s');
     if (inp) inp.value = '';
+}
+
+// ── Quick image update (drag-drop on table thumbnail) ───────────
+function onDragEnter(id, e) {
+    e.preventDefault();
+    dragCounters.value[id] = (dragCounters.value[id] ?? 0) + 1;
+    dragOverRowId.value = id;
+}
+function onDragOver(id, e) {
+    e.preventDefault();
+    dragOverRowId.value = id;
+}
+function onDragLeave(id) {
+    dragCounters.value[id] = (dragCounters.value[id] ?? 1) - 1;
+    if (dragCounters.value[id] <= 0) {
+        dragCounters.value[id] = 0;
+        if (dragOverRowId.value === id) dragOverRowId.value = null;
+    }
+}
+async function onTableDrop(p, e) {
+    e.preventDefault();
+    dragCounters.value[p.id] = 0;
+    dragOverRowId.value = null;
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) {
+        await uploadImagenRapida(p, file);
+        return;
+    }
+    const url = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
+    if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+        await uploadImagenDesdeUrl(p, url);
+    }
+}
+async function uploadImagenRapida(p, file) {
+    uploadingRowId.value = p.id;
+    try {
+        const compressed = await compressImage(file);
+        const fd = new FormData();
+        fd.append('imagen', compressed);
+        const { data } = await axios.post(
+            `/api/admin/sucursales/${sucId.value}/productos/${p.id}/imagen`,
+            fd,
+            { headers: { 'Content-Type': 'multipart/form-data' } },
+        );
+        const idx = productos.value.findIndex(x => x.id === p.id);
+        if (idx >= 0) productos.value[idx] = data;
+    } catch {
+        alert('Error al subir la imagen.');
+    } finally {
+        uploadingRowId.value = null;
+    }
+}
+async function uploadImagenDesdeUrl(p, url) {
+    uploadingRowId.value = p.id;
+    try {
+        const { data } = await axios.post(
+            `/api/admin/sucursales/${sucId.value}/productos/${p.id}/imagen-url`,
+            { url },
+        );
+        const idx = productos.value.findIndex(x => x.id === p.id);
+        if (idx >= 0) productos.value[idx] = data;
+    } catch (err) {
+        alert(err.response?.data?.message ?? 'Error al procesar la imagen.');
+    } finally {
+        uploadingRowId.value = null;
+    }
+}
+function abrirSelectorImagen(id) {
+    document.getElementById(`img-row-${id}`)?.click();
 }
 
 // ── Modal ──────────────────────────────────────────────────────
@@ -498,11 +571,33 @@ function barColor(p) {
                 </DropdownMenu>
               </td>
               <td class="px-2 py-1.5">
-                <div class="w-8 h-8 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
-                  <img v-if="imageUrl(p)" :src="imageUrl(p)" alt="" class="w-full h-full object-cover">
-                  <svg v-else class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                <div
+                  class="relative w-8 h-8 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center cursor-pointer transition-all"
+                  :class="dragOverRowId === p.id ? 'ring-2 ring-blue-500 ring-offset-1 bg-blue-50' : ''"
+                  @dragenter="onDragEnter(p.id, $event)"
+                  @dragover="onDragOver(p.id, $event)"
+                  @dragleave="onDragLeave(p.id)"
+                  @drop="onTableDrop(p, $event)"
+                  @click="abrirSelectorImagen(p.id)"
+                  title="Arrastra imagen o clic para cambiar"
+                >
+                  <input :id="`img-row-${p.id}`" type="file" accept="image/*" class="hidden"
+                    @change="e => uploadImagenRapida(p, e.target.files[0])">
+                  <img v-if="imageUrl(p) && uploadingRowId !== p.id" :src="imageUrl(p)" alt="" class="w-full h-full object-cover pointer-events-none">
+                  <svg v-else-if="uploadingRowId !== p.id" class="w-4 h-4 text-gray-300 pointer-events-none" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/>
                   </svg>
+                  <div v-if="uploadingRowId === p.id" class="absolute inset-0 flex items-center justify-center bg-white/80 pointer-events-none">
+                    <svg class="animate-spin w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                    </svg>
+                  </div>
+                  <div v-if="dragOverRowId === p.id" class="absolute inset-0 flex items-center justify-center bg-blue-500/20 pointer-events-none">
+                    <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
+                    </svg>
+                  </div>
                 </div>
               </td>
               <td class="px-3 py-1.5">
