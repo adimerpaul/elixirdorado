@@ -7,6 +7,10 @@ import {
     BarElement, CategoryScale, LinearScale,
 } from 'chart.js';
 import axios from 'axios';
+import EstadisticasPanel from '../components/EstadisticasPanel.vue';
+import { useAuthStore } from '../stores/auth.js';
+
+const auth = useAuthStore();
 
 ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale);
 
@@ -136,6 +140,15 @@ onMounted(async () => {
 
       </div>
     </template>
+
+    <!-- Ventas y ganancia de todas las sucursales -->
+    <div v-if="auth.can('dashboard')" class="mt-8">
+      <div class="mb-3">
+        <h3 class="text-lg font-bold text-gray-800">Ventas y ganancia</h3>
+        <p class="text-gray-500 text-xs mt-0.5">Todas las sucursales · comparativa y ganancia por sucursal</p>
+      </div>
+      <EstadisticasPanel />
+    </div>
 
   </div>
 </template>

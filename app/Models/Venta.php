@@ -13,13 +13,15 @@ class Venta extends Model
 
     protected $fillable = [
         'sucursal_id', 'folio', 'usuario_id', 'cliente_id',
-        'subtotal', 'iva', 'total', 'metodo_pago', 'comentarios', 'estado', 'fecha_venta',
+        'subtotal', 'iva', 'total', 'metodo_pago', 'monto_efectivo', 'monto_qr', 'comentarios', 'estado', 'fecha_venta',
     ];
 
     protected $casts = [
         'subtotal'     => 'decimal:2',
         'iva'          => 'decimal:2',
         'total'        => 'decimal:2',
+        'monto_efectivo' => 'decimal:2',
+        'monto_qr'     => 'decimal:2',
         'fecha_venta'  => 'datetime',
     ];
 

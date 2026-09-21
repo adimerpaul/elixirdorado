@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Admin\CategoriaController;
 use App\Http\Controllers\Api\Admin\ClienteController;
 use App\Http\Controllers\Api\Admin\CompraController;
 use App\Http\Controllers\Api\Admin\DashboardController;
+use App\Http\Controllers\Api\Admin\EstadisticaController;
 use App\Http\Controllers\Api\Admin\ProductoController;
 use App\Http\Controllers\Api\Admin\ProveedorController;
 use App\Http\Controllers\Api\Admin\SucursalController;
@@ -12,6 +13,7 @@ use App\Http\Controllers\Api\Admin\VentaController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/dashboard', [DashboardController::class, 'index']);
+Route::get('/estadisticas/sucursales', [EstadisticaController::class, 'sucursales']);
 
 Route::get('configuracion', function () {
     return response()->json(\App\Models\Configuracion::todos());
@@ -21,6 +23,8 @@ Route::post('configuracion', function () {
     $datos = request()->validate([
         'whatsapp'       => 'nullable|string|max:20',
         'nombre_negocio' => 'nullable|string|max:100',
+        // Sucursal cuyos productos se muestran en la página principal (/)
+        'sucursal_landing' => 'nullable|integer|exists:sucursales,id',
     ]);
     foreach ($datos as $clave => $valor) {
         \App\Models\Configuracion::set($clave, $valor);
@@ -51,6 +55,8 @@ Route::prefix('sucursales/{sucursal}')->group(function () {
     Route::post('categorias',                 [CategoriaController::class, 'store']);
     Route::put('categorias/{categoria}',      [CategoriaController::class, 'update']);
     Route::delete('categorias/{categoria}',   [CategoriaController::class, 'destroy']);
+
+    Route::get('estadisticas',            [EstadisticaController::class, 'sucursal']);
 
     Route::get('ventas',                  [VentaController::class, 'index']);
     Route::post('ventas',                 [VentaController::class, 'store']);

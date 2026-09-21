@@ -117,9 +117,11 @@ const displayName = u => u.nickname || u.name;
 const initials    = u => u.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
 const SUCURSAL_MODULES = [
+    { key: 'dashboard',         label: 'Dashboard' },
     { key: 'productos',         label: 'Productos' },
     { key: 'ventas.nueva',      label: 'Nueva Venta' },
     { key: 'ventas.historial',  label: 'Historial Ventas' },
+    { key: 'ventas.totales',    label: 'Ver Totales Ventas' },
     { key: 'compras.nueva',     label: 'Compra Nueva' },
     { key: 'compras.historial', label: 'Historial Compras' },
     { key: 'proveedores',       label: 'Proveedores' },

@@ -3,6 +3,7 @@ import AdminLayout from '../layouts/AdminLayout.vue';
 import Dashboard from '../views/Dashboard.vue';
 import Sucursales from '../views/Sucursales.vue';
 import Users from '../views/Users.vue';
+import SucursalDashboard from '../views/sucursal/Dashboard.vue';
 import SucursalProductos from '../views/sucursal/Productos.vue';
 import SucursalVentas from '../views/sucursal/Ventas.vue';
 import SucursalCompras from '../views/sucursal/Compras.vue';
@@ -19,6 +20,7 @@ const routes = [
             { path: '',            name: 'dashboard',           component: Dashboard },
             { path: 'sucursales',  name: 'sucursales',          component: Sucursales },
             { path: 'usuarios',    name: 'usuarios',            component: Users },
+            { path: 's/:sucursalId/dashboard',   name: 'sucursal.dashboard',   component: SucursalDashboard },
             { path: 's/:sucursalId/productos',   name: 'sucursal.productos',   component: SucursalProductos },
             { path: 's/:sucursalId/ventas',           redirect: to => `/admin/s/${to.params.sucursalId}/ventas/historial` },
             { path: 's/:sucursalId/ventas/nueva',      name: 'sucursal.ventas.nueva',      component: SucursalVentas },

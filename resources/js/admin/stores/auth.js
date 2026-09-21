@@ -25,7 +25,7 @@ export const useAuthStore = defineStore('auth', () => {
     const isSuperAdmin = computed(() => user.value?.rol === 'super_admin');
 
     const SUCURSAL_MODULES = [
-        'productos', 'ventas.nueva', 'ventas.historial',
+        'dashboard', 'productos', 'ventas.nueva', 'ventas.historial',
         'compras.nueva', 'compras.historial', 'proveedores',
         'stock.minimo', 'stock.maximo', 'vencimientos',
     ];

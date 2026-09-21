@@ -25,7 +25,7 @@ return [
     'zona_horaria' => env('NEGOCIO_TZ', 'America/La_Paz'),
 
     // Métodos de pago aceptados
-    'metodos_pago' => ['efectivo', 'tarjeta', 'qr', 'transferencia', 'credito'],
+    'metodos_pago' => ['efectivo', 'qr', 'mixto'],
 
     // Roles válidos del sistema
     'roles' => [

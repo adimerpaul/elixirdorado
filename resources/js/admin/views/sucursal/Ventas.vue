@@ -67,7 +67,8 @@ async function guardarNuevoCliente() {
 
 // ── Historial ─────────────────────────────────────────────────
 const ventas       = ref([]);
-const stats        = ref({ total_completadas: 0, total_canceladas: 0, count: 0, ganancia: 0, por_metodo: {} });
+const stats        = ref({ total_completadas: 0, total_canceladas: 0, count: 0, ganancia: 0, por_metodo: {}, ver_totales: false });
+const verTotales   = computed(() => stats.value.ver_totales === true);
 const loadingH     = ref(false);
 const desde        = ref(today());
 const hasta        = ref(today());
@@ -189,6 +190,8 @@ const sixpacks     = ref([]);
 const searchProd   = ref('');
 const cart         = ref([]);
 const metodoPago   = ref('efectivo');
+const montoEfectivo = ref(0);   // solo pago mixto
+const montoQr       = ref(0);   // solo pago mixto
 const comentarios  = ref('');
 const saving       = ref(false);
 const errores      = ref({});
@@ -392,12 +395,18 @@ function onSubtotalChange(item, value) {
 async function registrarVenta() {
     errores.value = {};
     if (!cart.value.length) { errores.value.items = 'Agrega al menos un producto.'; return; }
+    if (esMixto.value && !mixtoCuadra.value) {
+        errores.value.general = [`Efectivo + QR debe sumar ${fmtBs(total.value)}.`];
+        return;
+    }
 
     saving.value = true;
     try {
         const { data: venta } = await axios.post(`/api/admin/sucursales/${sucId.value}/ventas`, {
             cliente_id:  clienteId.value || null,
             metodo_pago: metodoPago.value,
+            monto_efectivo: esMixto.value ? round2(parseNumber(montoEfectivo.value) || 0) : null,
+            monto_qr:       esMixto.value ? round2(parseNumber(montoQr.value) || 0) : null,
             comentarios: comentarios.value || null,
             items: cart.value.map(i => i.sixpack_id
                 ? { sixpack_id: i.sixpack_id, cantidad: i.cantidad, precio_unitario: i.precio_unitario }
@@ -410,10 +419,12 @@ async function registrarVenta() {
         cart.value        = [];
         clienteId.value   = null;
         metodoPago.value  = 'efectivo';
+        montoEfectivo.value = 0;
+        montoQr.value       = 0;
         comentarios.value = '';
-        await loadProductos();
-        await goTab('historial');
-        await loadHistorial();
+        // Se queda en "Nueva Venta" para seguir vendiendo; el historial se refresca en segundo plano
+        await Promise.all([loadProductos(), loadSixpacks()]);
+        loadHistorial();
     } catch (e) {
         if (e.response?.status === 422)
             errores.value = e.response.data.errors ?? { general: [e.response.data.message] };
@@ -423,6 +434,29 @@ async function registrarVenta() {
         saving.value = false;
     }
 }
+
+// ── Pago mixto (efectivo + QR) ────────────────────────────────
+const esMixto     = computed(() => metodoPago.value === 'mixto');
+const mixtoSuma   = computed(() => round2((parseNumber(montoEfectivo.value) || 0) + (parseNumber(montoQr.value) || 0)));
+const mixtoCuadra = computed(() => Math.abs(mixtoSuma.value - total.value) < 0.01);
+
+// Al escribir el efectivo, el QR se completa con lo que falta
+function onMontoEfectivoChange() {
+    const ef = parseNumber(montoEfectivo.value) || 0;
+    montoQr.value = round2(Math.max(0, total.value - ef));
+}
+
+function onMontoQrChange() {
+    const qr = parseNumber(montoQr.value) || 0;
+    montoEfectivo.value = round2(Math.max(0, total.value - qr));
+}
+
+watch(metodoPago, (m) => {
+    if (m === 'mixto') { montoEfectivo.value = round2(total.value); montoQr.value = 0; }
+});
+
+// Si cambia el carrito con mixto activo, el QR absorbe la diferencia
+watch(total, () => { if (esMixto.value) onMontoEfectivoChange(); });
 
 // ── Watch route / tab ─────────────────────────────────────────
 watch(sucId, async () => {
@@ -447,8 +481,13 @@ const fmtNum   = v => (parseFloat(v) || 0).toFixed(2);
 const fmtFecha = d => d ? new Date(d).toLocaleString('es-BO', { timeZone: TZ }) : '—';
 const userName  = u => u?.nickname || u?.name || '—';
 
-const pagoColor = { efectivo: 'bg-green-100 text-green-700', tarjeta: 'bg-blue-100 text-blue-700', qr: 'bg-cyan-100 text-cyan-700', transferencia: 'bg-purple-100 text-purple-700', credito: 'bg-amber-100 text-amber-700' };
-const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', qr: 'QR', transferencia: 'Transferencia', credito: 'Crédito' };
+const pagoColor = { efectivo: 'bg-green-100 text-green-700', tarjeta: 'bg-blue-100 text-blue-700', qr: 'bg-cyan-100 text-cyan-700', transferencia: 'bg-purple-100 text-purple-700', credito: 'bg-amber-100 text-amber-700', mixto: 'bg-orange-100 text-orange-700' };
+const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', qr: 'QR', transferencia: 'Transferencia', credito: 'Crédito', mixto: 'Mixto' };
+
+// "Mixto" + desglose (Ef. / QR) cuando aplica
+const pagoTexto = v => v?.metodo_pago === 'mixto'
+    ? `Mixto (Ef. ${fmtNum(v.monto_efectivo)} + QR ${fmtNum(v.monto_qr)})`
+    : (pagoLabel[v?.metodo_pago] ?? v?.metodo_pago);
 
 // Card por método de pago (historial)
 const pagoCard = {
@@ -457,6 +496,7 @@ const pagoCard = {
     qr:            { dot: 'bg-cyan-500',   text: 'text-cyan-700',   ring: 'border-cyan-200',   soft: 'bg-cyan-50',   ringFocus: 'ring-cyan-400'   },
     transferencia: { dot: 'bg-purple-500', text: 'text-purple-700', ring: 'border-purple-200', soft: 'bg-purple-50', ringFocus: 'ring-purple-400' },
     credito:       { dot: 'bg-amber-500',  text: 'text-amber-700',  ring: 'border-amber-200',  soft: 'bg-amber-50',  ringFocus: 'ring-amber-400'  },
+    mixto:         { dot: 'bg-orange-500', text: 'text-orange-700', ring: 'border-orange-200', soft: 'bg-orange-50', ringFocus: 'ring-orange-400' },
 };
 
 const resumenMetodos = computed(() =>
@@ -465,6 +505,7 @@ const resumenMetodos = computed(() =>
         label: pagoLabel[metodo] ?? metodo,
         count: d.count ?? 0,
         total: d.total ?? 0,
+        desglose: metodo === 'mixto' && d.count ? `Ef. ${fmtNum(d.efectivo)} · QR ${fmtNum(d.qr)}` : null,
         estilo: pagoCard[metodo] ?? { dot: 'bg-gray-400', text: 'text-gray-700', ring: 'border-gray-200', soft: 'bg-gray-50', ringFocus: 'ring-gray-400' },
     })),
 );
@@ -629,10 +670,8 @@ const resumenMetodos = computed(() =>
               <select v-model="metodoPago"
                 class="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white">
                 <option value="efectivo">Efectivo</option>
-                <option value="tarjeta">Tarjeta</option>
                 <option value="qr">QR</option>
-                <option value="transferencia">Transferencia</option>
-                <option value="credito">Crédito</option>
+                <option value="mixto">Mixto (Efectivo + QR)</option>
               </select>
             </div>
             <div>
@@ -640,6 +679,26 @@ const resumenMetodos = computed(() =>
               <input v-model="comentarios" type="text" placeholder="Opcional"
                 class="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500">
             </div>
+          </div>
+
+          <!-- Desglose pago mixto -->
+          <div v-if="esMixto" class="rounded-lg border border-orange-200 bg-orange-50/50 p-2.5 space-y-2">
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-semibold text-green-700 mb-1">Efectivo (Bs)</label>
+                <input v-model="montoEfectivo" @input="onMontoEfectivoChange" type="number" min="0" step="0.01"
+                  class="w-full border border-green-200 rounded-lg px-3 py-1.5 text-xs text-right focus:outline-none focus:ring-2 focus:ring-green-500 bg-white">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-cyan-700 mb-1">QR (Bs)</label>
+                <input v-model="montoQr" @input="onMontoQrChange" type="number" min="0" step="0.01"
+                  class="w-full border border-cyan-200 rounded-lg px-3 py-1.5 text-xs text-right focus:outline-none focus:ring-2 focus:ring-cyan-500 bg-white">
+              </div>
+            </div>
+            <p :class="['text-[11px] font-semibold', mixtoCuadra ? 'text-emerald-600' : 'text-red-600']">
+              Suma: {{ fmtBs(mixtoSuma) }} / Total: {{ fmtBs(total) }}
+              <span v-if="!mixtoCuadra"> · falta {{ fmtBs(total - mixtoSuma) }}</span>
+            </p>
           </div>
 
           <button @click="registrarVenta" :disabled="saving || !cart.length"
@@ -747,8 +806,8 @@ const resumenMetodos = computed(() =>
     <div v-if="tab === 'historial'" class="flex flex-col gap-3">
 
       <!-- Stats -->
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <div class="bg-emerald-600 text-white rounded-lg p-2.5 flex items-center gap-2.5">
+      <div :class="['grid gap-2', verTotales ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-1 sm:grid-cols-4']">
+        <div v-if="verTotales" class="bg-emerald-600 text-white rounded-lg p-2.5 flex items-center gap-2.5">
           <div class="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z"/>
@@ -759,7 +818,7 @@ const resumenMetodos = computed(() =>
             <p class="text-lg font-bold leading-tight">{{ fmtBs(stats.total_completadas) }}</p>
           </div>
         </div>
-        <div class="bg-red-600 text-white rounded-lg p-2.5 flex items-center gap-2.5">
+        <div v-if="verTotales" class="bg-red-600 text-white rounded-lg p-2.5 flex items-center gap-2.5">
           <div class="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636"/>
@@ -781,7 +840,7 @@ const resumenMetodos = computed(() =>
             <p class="text-lg font-bold leading-tight">{{ stats.count }}</p>
           </div>
         </div>
-        <div class="bg-amber-500 text-white rounded-lg p-2.5 flex items-center gap-2.5">
+        <div v-if="verTotales" class="bg-amber-500 text-white rounded-lg p-2.5 flex items-center gap-2.5">
           <div class="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
@@ -804,11 +863,26 @@ const resumenMetodos = computed(() =>
               : [m.estilo.ring, 'bg-white hover:bg-gray-50']]">
           <span :class="['w-2 h-2 rounded-full flex-shrink-0', m.estilo.dot]"></span>
           <span class="text-[11px] font-semibold text-gray-500">{{ m.label }}</span>
-          <span :class="['text-sm font-bold leading-none', m.estilo.text]">{{ fmtBs(m.total) }}</span>
+          <span v-if="verTotales" :class="['text-sm font-bold leading-none', m.estilo.text]">{{ fmtBs(m.total) }}</span>
+          <span v-if="verTotales && m.desglose" class="text-[10px] text-gray-500">{{ m.desglose }}</span>
           <span class="text-[10px] text-gray-400 bg-gray-100 rounded-full px-1.5 py-0.5 leading-none">{{ m.count }}</span>
         </button>
         <button v-if="metodoFiltro" @click="metodoFiltro = null"
           class="text-[11px] text-gray-500 hover:text-gray-700 underline px-1">Quitar filtro</button>
+
+        <!-- Total recibido por canal (efectivo/QR puros + su parte de las mixtas) -->
+        <div v-if="verTotales" class="flex items-center gap-2 ml-auto">
+          <div class="flex items-center gap-1.5 border border-green-300 bg-green-50 rounded-lg px-2.5 py-1.5"
+            title="Ventas en efectivo + parte en efectivo de las mixtas">
+            <span class="text-[11px] font-semibold text-green-700">Total efectivo</span>
+            <span class="text-sm font-bold text-green-700 leading-none">{{ fmtBs(stats.ingreso_efectivo ?? 0) }}</span>
+          </div>
+          <div class="flex items-center gap-1.5 border border-cyan-300 bg-cyan-50 rounded-lg px-2.5 py-1.5"
+            title="Ventas por QR + parte por QR de las mixtas">
+            <span class="text-[11px] font-semibold text-cyan-700">Total QR</span>
+            <span class="text-sm font-bold text-cyan-700 leading-none">{{ fmtBs(stats.ingreso_qr ?? 0) }}</span>
+          </div>
+        </div>
       </div>
 
       <!-- Filtros -->
@@ -972,7 +1046,7 @@ const resumenMetodos = computed(() =>
       <div class="v-sub">Fecha: {{ fmtFecha(ventaPrint.created_at) }}</div>
       <div class="v-sub">Cliente: {{ ventaPrint.cliente?.nombre ?? 'S/N' }}</div>
       <div class="v-sub">Cajero: {{ userName(ventaPrint.usuario) }}</div>
-      <div class="v-sub">Pago: {{ pagoLabel[ventaPrint.metodo_pago] ?? ventaPrint.metodo_pago }}</div>
+      <div class="v-sub">Pago: {{ pagoTexto(ventaPrint) }}</div>
       <div class="v-sep"></div>
       <table>
         <thead>
@@ -1045,7 +1119,7 @@ const resumenMetodos = computed(() =>
             </div>
             <div>
               <p class="text-xs text-gray-400">Pago</p>
-              <p class="text-sm font-semibold text-gray-800">{{ pagoLabel[ventaDetalle.metodo_pago] ?? ventaDetalle.metodo_pago }}</p>
+              <p class="text-sm font-semibold text-gray-800">{{ pagoTexto(ventaDetalle) }}</p>
             </div>
             <div>
               <p class="text-xs text-gray-400">Total</p>

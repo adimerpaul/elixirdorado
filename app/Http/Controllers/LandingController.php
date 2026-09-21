@@ -11,7 +11,9 @@ class LandingController extends Controller
 {
     public function index()
     {
-        $sucursal   = Sucursal::where('activa', true)->orderBy('id')->first();
+        // Sucursal elegida en Configuración; si no hay o está inactiva, la primera activa
+        $sucursal = Sucursal::where('activa', true)->find(Configuracion::get('sucursal_landing'))
+            ?? Sucursal::where('activa', true)->orderBy('id')->first();
         $productos  = collect();
         $categorias = collect();
 

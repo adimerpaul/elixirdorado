@@ -18,14 +18,17 @@ class PermissionsSeeder extends Seeder
         }
 
         $modules = [
+            'dashboard',
             'productos',
             'ventas.nueva',
             'ventas.historial',
+            'ventas.totales',
             'compras.nueva',
             'compras.historial',
             'proveedores',
             'stock.minimo',
             'stock.maximo',
+            'vencimientos',
         ];
 
         Sucursal::each(function ($s) use ($modules) {

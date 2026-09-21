@@ -2,15 +2,21 @@
 import { ref, onMounted } from 'vue';
 import axios from 'axios';
 
-const form   = ref({ whatsapp: '', nombre_negocio: '' });
+const form   = ref({ whatsapp: '', nombre_negocio: '', sucursal_landing: null });
+const sucursales = ref([]);
 const saving = ref(false);
 const saved  = ref(false);
 const error  = ref('');
 
 onMounted(async () => {
-    const { data } = await axios.get('/api/admin/configuracion');
+    const [{ data }, { data: sucs }] = await Promise.all([
+        axios.get('/api/admin/configuracion'),
+        axios.get('/api/admin/sucursales'),
+    ]);
+    sucursales.value = sucs.filter(s => s.activa);
     form.value.whatsapp       = data.whatsapp       ?? '';
     form.value.nombre_negocio = data.nombre_negocio ?? '';
+    form.value.sucursal_landing = data.sucursal_landing ? Number(data.sucursal_landing) : null;
 });
 
 async function guardar() {
@@ -60,6 +66,23 @@ async function guardar() {
         <label class="block text-sm font-semibold text-gray-700 mb-1">Nombre del negocio</label>
         <input v-model="form.nombre_negocio" type="text" placeholder="Elixir Dorado"
           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+      </div>
+
+      <!-- Sucursal de la página principal -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">
+          Sucursal en la página principal
+          <span class="text-gray-400 font-normal text-xs ml-1">(catálogo público)</span>
+        </label>
+        <select v-model="form.sucursal_landing"
+          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white">
+          <option :value="null">Automática (primera sucursal activa)</option>
+          <option v-for="s in sucursales" :key="s.id" :value="s.id">{{ s.nombre }}</option>
+        </select>
+        <p class="text-xs text-gray-400 mt-1">
+          Sus productos, categorías, dirección y teléfono se muestran en
+          <a href="/" target="_blank" class="text-emerald-600 hover:underline">la página principal</a>.
+        </p>
       </div>
 
       <!-- Alerta error -->

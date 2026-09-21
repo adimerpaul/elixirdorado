@@ -51,13 +51,25 @@ class VentaController extends Controller
 
         // Desglose por método de pago (solo ventas completadas)
         $porMetodo = [];
-        foreach (config('negocio.metodos_pago', ['efectivo', 'tarjeta', 'qr', 'transferencia', 'credito']) as $metodo) {
+        // Métodos vigentes siempre; métodos antiguos (tarjeta, etc.) solo si hay ventas con ellos
+        $metodos = collect(config('negocio.metodos_pago'))
+            ->merge($ventasCompletadas->pluck('metodo_pago'))
+            ->unique();
+        foreach ($metodos as $metodo) {
             $grupo = $ventasCompletadas->where('metodo_pago', $metodo);
             $porMetodo[$metodo] = [
                 'count' => $grupo->count(),
                 'total' => round($grupo->sum('total'), 2),
             ];
         }
+        // Desglose del mixto para saber cuánto entró en efectivo y cuánto por QR
+        $mixtas = $ventasCompletadas->where('metodo_pago', 'mixto');
+        $porMetodo['mixto']['efectivo'] = round($mixtas->sum('monto_efectivo'), 2);
+        $porMetodo['mixto']['qr']       = round($mixtas->sum('monto_qr'), 2);
+
+        // Total real recibido por canal (incluye la parte de las ventas mixtas)
+        $ingresoEfectivo = round($porMetodo['efectivo']['total'] + $porMetodo['mixto']['efectivo'], 2);
+        $ingresoQr       = round($porMetodo['qr']['total'] + $porMetodo['mixto']['qr'], 2);
 
         $stats = [
             'total_completadas' => $ingresos,
@@ -65,7 +77,19 @@ class VentaController extends Controller
             'count'             => $ventasCompletadas->count(),
             'ganancia'          => round($ingresos - $costoTotal, 2),
             'por_metodo'        => $porMetodo,
+            'ingreso_efectivo'  => $ingresoEfectivo,
+            'ingreso_qr'        => $ingresoQr,
+            'ver_totales'       => true,
         ];
+
+        // Sin permiso de totales (ej. vendedores) no se envían montos agregados
+        if (! $this->puedeVerTotales($sucursal)) {
+            $stats = [
+                'count'       => $stats['count'],
+                'por_metodo'  => array_map(fn ($m) => ['count' => $m['count'] ?? 0], $porMetodo),
+                'ver_totales' => false,
+            ];
+        }
 
         return response()->json(['ventas' => $ventas, 'stats' => $stats]);
     }
@@ -75,8 +99,10 @@ class VentaController extends Controller
         $data = $request->validate([
             'cliente_id'              => 'nullable|integer|exists:clientes,id',
             'comentarios'             => 'nullable|string|max:500',
-            'metodo_pago'             => 'required|in:efectivo,tarjeta,qr,transferencia,credito',
-            'items'                   => 'required|array|min:1',
+            'metodo_pago'             => 'required|in:' . implode(',', config('negocio.metodos_pago')),
+            'monto_efectivo'          => 'required_if:metodo_pago,mixto|nullable|numeric|min:0',
+            'monto_qr'                => 'required_if:metodo_pago,mixto|nullable|numeric|min:0',
+            'items'                 => 'required|array|min:1',
             'items.*.producto_id'     => 'nullable|integer',
             'items.*.sixpack_id'      => 'nullable|integer',
             'items.*.cantidad'        => 'required|integer|min:1',
@@ -123,6 +149,12 @@ class VentaController extends Controller
 
             $subtotal = collect($data['items'])->sum(fn ($i) => $i['cantidad'] * $i['precio_unitario']);
 
+            // Pago mixto: efectivo + QR deben cubrir exactamente el total
+            $esMixto = $data['metodo_pago'] === 'mixto';
+            if ($esMixto && abs(($data['monto_efectivo'] + $data['monto_qr']) - $subtotal) > 0.009) {
+                abort(422, 'En pago mixto, efectivo + QR debe ser igual al total (Bs ' . number_format($subtotal, 2) . ').');
+            }
+
             $venta = Venta::create([
                 'sucursal_id'  => $sucursal->id,
                 'folio'        => 'TEMP-' . uniqid('', true),
@@ -132,6 +164,8 @@ class VentaController extends Controller
                 'iva'          => 0,
                 'total'        => $subtotal,
                 'metodo_pago'  => $data['metodo_pago'],
+                'monto_efectivo' => $esMixto ? $data['monto_efectivo'] : null,
+                'monto_qr'     => $esMixto ? $data['monto_qr'] : null,
                 'comentarios'  => $data['comentarios'] ?? null,
                 'estado'       => 'completada',
             ]);
@@ -219,6 +253,15 @@ class VentaController extends Controller
         return response()->json(
             $venta->fresh()->load('usuario:id,name,nickname', 'cliente:id,nombre', 'detalles.producto:id,nombre')
         );
+    }
+
+    private function puedeVerTotales(Sucursal $sucursal): bool
+    {
+        $user = auth()->user();
+
+        return $user->rol === 'super_admin'
+            || $user->can("sucursal.{$sucursal->id}")
+            || $user->can("sucursal.{$sucursal->id}.ventas.totales");
     }
 
     // ── FIFO helpers ──────────────────────────────────────────────
