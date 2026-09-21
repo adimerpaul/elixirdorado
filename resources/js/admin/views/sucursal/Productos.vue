@@ -90,6 +90,98 @@ async function load() {
 
 watch(sucId, load, { immediate: true });
 
+// ── Categorías ─────────────────────────────────────────────────
+const showCategorias   = ref(false);
+const categoriasAdmin  = ref([]);
+const loadingCats      = ref(false);
+const nuevaCategoria   = ref('');
+const editingCatId     = ref(null);
+const editingCatNombre = ref('');
+const savingCat        = ref(false);
+const catError         = ref('');
+
+async function openCategorias() {
+    showCategorias.value = true;
+    nuevaCategoria.value = '';
+    editingCatId.value   = null;
+    catError.value       = '';
+    await loadCategoriasAdmin();
+}
+
+async function loadCategoriasAdmin() {
+    loadingCats.value = true;
+    try {
+        const { data } = await axios.get(`/api/admin/sucursales/${sucId.value}/categorias`);
+        categoriasAdmin.value = data;
+        categorias.value      = data.map(c => ({ id: c.id, nombre: c.nombre }));
+    } finally {
+        loadingCats.value = false;
+    }
+}
+
+function catErrorMsg(e) {
+    return e.response?.data?.errors?.nombre?.[0] ?? e.response?.data?.message ?? 'Ocurrió un error.';
+}
+
+async function crearCategoria() {
+    const nombre = nuevaCategoria.value.trim();
+    if (!nombre) return;
+    savingCat.value = true;
+    catError.value  = '';
+    try {
+        await axios.post(`/api/admin/sucursales/${sucId.value}/categorias`, { nombre });
+        nuevaCategoria.value = '';
+        await loadCategoriasAdmin();
+    } catch (e) {
+        catError.value = catErrorMsg(e);
+    } finally {
+        savingCat.value = false;
+    }
+}
+
+function editarCategoria(c) {
+    editingCatId.value     = c.id;
+    editingCatNombre.value = c.nombre;
+    catError.value         = '';
+}
+
+async function guardarCategoria(c) {
+    const nombre = editingCatNombre.value.trim();
+    if (!nombre) return;
+    savingCat.value = true;
+    catError.value  = '';
+    try {
+        await axios.put(`/api/admin/sucursales/${sucId.value}/categorias/${c.id}`, { nombre });
+        editingCatId.value = null;
+        await loadCategoriasAdmin();
+        productos.value.forEach(p => {
+            if (p.categoria_id == c.id && p.categoria) p.categoria.nombre = nombre;
+        });
+    } catch (e) {
+        catError.value = catErrorMsg(e);
+    } finally {
+        savingCat.value = false;
+    }
+}
+
+async function eliminarCategoria(c) {
+    const aviso = c.productos_count > 0
+        ? `\n\n${c.productos_count} producto(s) quedarán "Sin categoría".`
+        : '';
+    if (!confirm(`¿Eliminar la categoría "${c.nombre}"?${aviso}`)) return;
+    catError.value = '';
+    try {
+        await axios.delete(`/api/admin/sucursales/${sucId.value}/categorias/${c.id}`);
+        if (filterCat.value == c.id) filterCat.value = '';
+        productos.value.forEach(p => {
+            if (p.categoria_id == c.id) { p.categoria_id = null; p.categoria = null; }
+        });
+        await loadCategoriasAdmin();
+    } catch (e) {
+        catError.value = catErrorMsg(e);
+    }
+}
+
 // ── Image ──────────────────────────────────────────────────────
 function compressImage(file, maxW = 800, maxH = 800, quality = 0.82) {
     return new Promise(resolve => {
@@ -270,7 +362,7 @@ async function remove(p) {
 
 const fmtBs    = v => v != null ? `Bs ${parseFloat(v).toFixed(2)}` : '—';
 const fmtFecha = d => d ? new Date(d).toLocaleString('es-BO') : '—';
-const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia' };
+const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', qr: 'QR', transferencia: 'Transferencia', credito: 'Crédito' };
 
 // ── SIXPACKS ─────────────────────────────────────────────────────
 const sixpacks           = ref([]);
@@ -513,6 +605,14 @@ function barColor(p) {
         <option value="">Todas las categorías</option>
         <option v-for="c in categorias" :key="c.id" :value="c.id">{{ c.nombre }}</option>
       </select>
+      <button @click="openCategorias"
+        class="flex items-center gap-1.5 border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6Z"/>
+        </svg>
+        Categorías
+      </button>
     </div>
 
     <!-- Loading -->
@@ -725,6 +825,88 @@ function barColor(p) {
         </table>
       </div>
     </div>
+
+    <!-- Modal Categorías -->
+    <Transition name="modal">
+    <div v-if="showCategorias" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="showCategorias = false">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col">
+
+        <div class="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
+          <h3 class="font-bold text-gray-800 text-sm">
+            Categorías
+            <span class="font-normal text-gray-400 text-xs ml-1">— {{ sucursal?.nombre }}</span>
+          </h3>
+          <button @click="showCategorias = false" class="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="px-5 py-3 border-b border-gray-100 space-y-2">
+          <form @submit.prevent="crearCategoria" class="flex gap-2">
+            <input v-model="nuevaCategoria" type="text" placeholder="Nueva categoría..." maxlength="255"
+              class="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <button type="submit" :disabled="savingCat || !nuevaCategoria.trim()"
+              class="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+              </svg>
+              Agregar
+            </button>
+          </form>
+          <div v-if="catError" class="bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3 py-1.5">{{ catError }}</div>
+        </div>
+
+        <div class="overflow-y-auto flex-1">
+          <div v-if="loadingCats && !categoriasAdmin.length" class="flex justify-center py-8">
+            <svg class="animate-spin w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+            </svg>
+          </div>
+          <p v-else-if="!categoriasAdmin.length" class="text-center text-gray-400 text-xs py-8">No hay categorías registradas.</p>
+          <ul v-else class="divide-y divide-gray-50">
+            <li v-for="c in categoriasAdmin" :key="c.id" class="px-5 py-2 flex items-center gap-2 hover:bg-gray-50/60">
+              <template v-if="editingCatId === c.id">
+                <input v-model="editingCatNombre" type="text" maxlength="255"
+                  @keydown.enter.prevent="guardarCategoria(c)" @keydown.esc="editingCatId = null"
+                  class="flex-1 border border-blue-300 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button @click="guardarCategoria(c)" :disabled="savingCat" title="Guardar"
+                  class="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 disabled:opacity-50">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/>
+                  </svg>
+                </button>
+                <button @click="editingCatId = null" title="Cancelar"
+                  class="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
+                  </svg>
+                </button>
+              </template>
+              <template v-else>
+                <span class="flex-1 text-xs text-gray-700 font-medium truncate">{{ c.nombre }}</span>
+                <span class="text-gray-400 text-xs whitespace-nowrap">{{ c.productos_count }} prod.</span>
+                <button @click="editarCategoria(c)" title="Editar"
+                  class="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125"/>
+                  </svg>
+                </button>
+                <button @click="eliminarCategoria(c)" title="Eliminar"
+                  class="p-1.5 rounded-lg text-red-500 hover:bg-red-50">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/>
+                  </svg>
+                </button>
+              </template>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    </Transition>
 
     <!-- Modal -->
     <Transition name="modal">

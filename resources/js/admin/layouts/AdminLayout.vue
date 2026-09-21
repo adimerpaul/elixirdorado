@@ -74,6 +74,12 @@ const pageTitle = computed(() => {
         if (route.name === 'sucursal.stock.maximo') {
             return s ? `${s.nombre} — Stock Máximo` : 'Stock Máximo';
         }
+        if (route.name === 'sucursal.vencimientos.por_vencer') {
+            return s ? `${s.nombre} — Por vencer` : 'Por vencer';
+        }
+        if (route.name === 'sucursal.vencimientos.vencidos') {
+            return s ? `${s.nombre} — Vencidos` : 'Vencidos';
+        }
         const mod = { productos: 'Productos', ventas: 'Ventas', proveedores: 'Proveedores' };
         const seg = route.path.split('/').pop();
         return s ? `${s.nombre} — ${mod[seg] ?? seg}` : (mod[seg] ?? 'Admin');
@@ -287,6 +293,26 @@ const subOff   = 'text-slate-400 hover:text-white hover:bg-slate-700';
                         <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18"/>
                       </svg>
                       Stock Máximo
+                    </RouterLink>
+                  </li>
+                  <li v-if="auth.canSucursalModule(s.id, 'vencimientos')">
+                    <RouterLink :to="`/admin/s/${s.id}/vencimientos/por-vencer`"
+                      :class="[subBase, route.path === `/admin/s/${s.id}/vencimientos/por-vencer` ? subOn : subOff]"
+                      @click="closeSidebarOnMobile">
+                      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+                      </svg>
+                      Productos por vencer
+                    </RouterLink>
+                  </li>
+                  <li v-if="auth.canSucursalModule(s.id, 'vencimientos')">
+                    <RouterLink :to="`/admin/s/${s.id}/vencimientos/vencidos`"
+                      :class="[subBase, route.path === `/admin/s/${s.id}/vencimientos/vencidos` ? subOn : subOff]"
+                      @click="closeSidebarOnMobile">
+                      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/>
+                      </svg>
+                      Productos vencidos
                     </RouterLink>
                   </li>
                 </ul>

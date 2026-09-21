@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\CategoriaController;
 use App\Http\Controllers\Api\Admin\ClienteController;
 use App\Http\Controllers\Api\Admin\CompraController;
 use App\Http\Controllers\Api\Admin\DashboardController;
@@ -36,6 +37,7 @@ Route::apiResource('users', UserController::class);
 Route::prefix('sucursales/{sucursal}')->group(function () {
     Route::get('productos',                    [ProductoController::class, 'index']);
     Route::get('productos/stock-alertas',      [ProductoController::class, 'stockAlertas']);
+    Route::get('productos/vencimientos',       [ProductoController::class, 'vencimientos']);
     Route::get('productos/export/excel',       [ProductoController::class, 'exportExcel']);
     Route::get('productos/export/pdf',         [ProductoController::class, 'exportPdf']);
     Route::get('productos/{id}/historial',     [ProductoController::class, 'historial']);
@@ -44,6 +46,11 @@ Route::prefix('sucursales/{sucursal}')->group(function () {
     Route::post('productos/{id}/imagen',          [ProductoController::class, 'updateImagen']);
     Route::post('productos/{id}/imagen-url',      [ProductoController::class, 'updateImagenFromUrl']);
     Route::delete('productos/{id}',           [ProductoController::class, 'destroy']);
+
+    Route::get('categorias',                  [CategoriaController::class, 'index']);
+    Route::post('categorias',                 [CategoriaController::class, 'store']);
+    Route::put('categorias/{categoria}',      [CategoriaController::class, 'update']);
+    Route::delete('categorias/{categoria}',   [CategoriaController::class, 'destroy']);
 
     Route::get('ventas',                  [VentaController::class, 'index']);
     Route::post('ventas',                 [VentaController::class, 'store']);

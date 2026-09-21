@@ -9,6 +9,7 @@ use App\Models\Producto;
 use App\Models\Sucursal;
 use App\Models\Venta;
 use Illuminate\Http\Request;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class VentaController extends Controller
@@ -22,11 +23,19 @@ class VentaController extends Controller
             ])
             ->where('sucursal_id', $sucursal->id);
 
+        // El rango se interpreta en la zona horaria del negocio y se convierte a
+        // UTC, que es como la BD guarda created_at.
+        $tz = config('negocio.zona_horaria', 'America/La_Paz');
+
         if ($request->filled('desde')) {
-            $query->whereDate('created_at', '>=', $request->desde);
+            $hora = $request->input('hora_desde') ?: '00:00';
+            $query->where('created_at', '>=', Carbon::parse("{$request->desde} {$hora}", $tz)
+                ->startOfMinute()->setTimezone('UTC'));
         }
         if ($request->filled('hasta')) {
-            $query->whereDate('created_at', '<=', $request->hasta);
+            $hora = $request->input('hora_hasta') ?: '23:59';
+            $query->where('created_at', '<=', Carbon::parse("{$request->hasta} {$hora}", $tz)
+                ->endOfMinute()->setTimezone('UTC'));
         }
 
         $ventas = $query->latest()->get();
@@ -40,11 +49,22 @@ class VentaController extends Controller
 
         $ingresos = $ventasCompletadas->sum('total');
 
+        // Desglose por método de pago (solo ventas completadas)
+        $porMetodo = [];
+        foreach (config('negocio.metodos_pago', ['efectivo', 'tarjeta', 'qr', 'transferencia', 'credito']) as $metodo) {
+            $grupo = $ventasCompletadas->where('metodo_pago', $metodo);
+            $porMetodo[$metodo] = [
+                'count' => $grupo->count(),
+                'total' => round($grupo->sum('total'), 2),
+            ];
+        }
+
         $stats = [
             'total_completadas' => $ingresos,
             'total_canceladas'  => $ventas->where('estado', 'cancelada')->sum('total'),
             'count'             => $ventasCompletadas->count(),
             'ganancia'          => round($ingresos - $costoTotal, 2),
+            'por_metodo'        => $porMetodo,
         ];
 
         return response()->json(['ventas' => $ventas, 'stats' => $stats]);
@@ -55,7 +75,7 @@ class VentaController extends Controller
         $data = $request->validate([
             'cliente_id'              => 'nullable|integer|exists:clientes,id',
             'comentarios'             => 'nullable|string|max:500',
-            'metodo_pago'             => 'required|in:efectivo,tarjeta,transferencia',
+            'metodo_pago'             => 'required|in:efectivo,tarjeta,qr,transferencia,credito',
             'items'                   => 'required|array|min:1',
             'items.*.producto_id'     => 'nullable|integer',
             'items.*.sixpack_id'      => 'nullable|integer',

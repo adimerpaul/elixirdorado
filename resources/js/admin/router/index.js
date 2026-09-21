@@ -8,6 +8,7 @@ import SucursalVentas from '../views/sucursal/Ventas.vue';
 import SucursalCompras from '../views/sucursal/Compras.vue';
 import SucursalProveedores from '../views/sucursal/Proveedores.vue';
 import SucursalStockAlertas from '../views/sucursal/StockAlertas.vue';
+import SucursalVencimientos from '../views/sucursal/Vencimientos.vue';
 import Configuracion from '../views/Configuracion.vue';
 
 const routes = [
@@ -28,6 +29,9 @@ const routes = [
             { path: 's/:sucursalId/proveedores', name: 'sucursal.proveedores', component: SucursalProveedores },
             { path: 's/:sucursalId/stock/minimo', name: 'sucursal.stock.minimo', component: SucursalStockAlertas },
             { path: 's/:sucursalId/stock/maximo', name: 'sucursal.stock.maximo', component: SucursalStockAlertas },
+            { path: 's/:sucursalId/vencimientos',            redirect: to => `/admin/s/${to.params.sucursalId}/vencimientos/por-vencer` },
+            { path: 's/:sucursalId/vencimientos/por-vencer', name: 'sucursal.vencimientos.por_vencer', component: SucursalVencimientos },
+            { path: 's/:sucursalId/vencimientos/vencidos',   name: 'sucursal.vencimientos.vencidos',   component: SucursalVencimientos },
             { path: 'configuracion', name: 'configuracion', component: Configuracion },
         ],
     },

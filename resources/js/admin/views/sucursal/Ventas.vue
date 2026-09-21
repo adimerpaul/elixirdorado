@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import { useAuthStore } from '../../stores/auth.js';
@@ -10,6 +10,9 @@ const router   = useRouter();
 const auth     = useAuthStore();
 const sucId    = computed(() => route.params.sucursalId);
 const sucursal = computed(() => auth.sucursales.find(s => s.id == sucId.value));
+
+// Zona horaria del negocio: la API guarda/compara en UTC
+const TZ = 'America/La_Paz';
 
 // ── Tabs ──────────────────────────────────────────────────────
 const tab = ref('historial');
@@ -64,28 +67,69 @@ async function guardarNuevoCliente() {
 
 // ── Historial ─────────────────────────────────────────────────
 const ventas       = ref([]);
-const stats        = ref({ total_completadas: 0, total_canceladas: 0, count: 0, ganancia: 0 });
+const stats        = ref({ total_completadas: 0, total_canceladas: 0, count: 0, ganancia: 0, por_metodo: {} });
 const loadingH     = ref(false);
 const desde        = ref(today());
 const hasta        = ref(today());
+const horaDesde    = ref('00:01');
+const horaHasta    = ref('23:59');
 const ventaDetalle = ref(null);
 
+// Fecha de hoy en la zona horaria del negocio (no en UTC)
 function today() {
-    return new Date().toISOString().slice(0, 10);
+    return new Date().toLocaleDateString('en-CA', { timeZone: TZ });
 }
 
 async function loadHistorial() {
     loadingH.value = true;
     try {
         const { data } = await axios.get(`/api/admin/sucursales/${sucId.value}/ventas`, {
-            params: { desde: desde.value, hasta: hasta.value },
+            params: {
+                desde: desde.value,
+                hasta: hasta.value,
+                hora_desde: horaDesde.value || '00:00',
+                hora_hasta: horaHasta.value || '23:59',
+            },
         });
         ventas.value = data.ventas;
         stats.value  = data.stats;
+        pagina.value = 1;
+        metodoFiltro.value = null;
     } finally {
         loadingH.value = false;
     }
 }
+
+// ── Filtro por método de pago (click en el card) ───────────────
+const metodoFiltro = ref(null);
+
+function filtrarMetodo(metodo) {
+    metodoFiltro.value = metodoFiltro.value === metodo ? null : metodo;
+    pagina.value = 1;
+}
+
+const ventasFiltradas = computed(() =>
+    metodoFiltro.value
+        ? ventas.value.filter(v => v.metodo_pago === metodoFiltro.value)
+        : ventas.value,
+);
+
+// ── Paginación del historial ──────────────────────────────────
+const pagina     = ref(1);
+const porPagina  = ref(25);
+
+const totalPaginas = computed(() => Math.max(1, Math.ceil(ventasFiltradas.value.length / porPagina.value)));
+
+const ventasPagina = computed(() => {
+    const ini = (pagina.value - 1) * porPagina.value;
+    return ventasFiltradas.value.slice(ini, ini + porPagina.value);
+});
+
+function irPagina(p) {
+    pagina.value = Math.min(Math.max(1, p), totalPaginas.value);
+}
+
+watch(porPagina, () => { pagina.value = 1; });
 
 async function cancelar(v) {
     const cliente = v.cliente?.nombre ?? 'cliente general';
@@ -102,6 +146,43 @@ function verVenta(v) {
     ventaDetalle.value = v;
 }
 
+// ── Voucher / impresión (printd) ──────────────────────────────
+const ventaPrint  = ref(null);
+const voucherRef  = ref(null);
+let   printer     = null;
+
+const voucherCss = `
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  .voucher {
+    width: 80mm; max-width: 80mm; margin: 0 auto; padding: 4mm 3mm;
+    font-family: 'Courier New', Courier, monospace; font-size: 11px; line-height: 1.35; color: #000;
+  }
+  .vc { text-align: center; }
+  .vr { text-align: right; }
+  .vb { font-weight: bold; }
+  .v-title { font-size: 15px; font-weight: bold; letter-spacing: 1px; }
+  .v-sub { font-size: 10px; }
+  .v-sep { border-top: 1px dashed #000; margin: 5px 0; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 1px 0; font-size: 10px; vertical-align: top; }
+  thead th { border-bottom: 1px solid #000; text-align: left; }
+  .v-total { font-size: 14px; font-weight: bold; }
+  .v-foot { margin-top: 6px; font-size: 10px; }
+  @page { size: 80mm auto; margin: 0; }
+`;
+
+function imprimirVoucher(v) {
+    ventaPrint.value = v;
+    nextTick(() => {
+        if (!voucherRef.value) return;
+        const Printd = window.printd?.Printd ?? window.Printd;
+        if (!Printd) { alert('No se pudo cargar el módulo de impresión.'); return; }
+        printer ??= new Printd();
+        printer.print(voucherRef.value, [voucherCss]);
+    });
+}
+
 // ── Nueva Venta ───────────────────────────────────────────────
 const productos    = ref([]);
 const sixpacks     = ref([]);
@@ -112,13 +193,62 @@ const comentarios  = ref('');
 const saving       = ref(false);
 const errores      = ref({});
 
+// ── Categorías (chips de filtro) ──────────────────────────────
+const categorias = ref([]);
+const catFiltro  = ref(null);   // null = todas | id | 'sin'
+
+// Icono por nombre de categoría (heurística simple)
+function catIcono(nombre) {
+    const n = (nombre ?? '').toLowerCase();
+    if (/cerve|beer|chop/.test(n))              return '🍺';
+    if (/vino|espumante|champ/.test(n))         return '🍷';
+    if (/whis|ron|vodka|tequi|singani|licor|destil/.test(n)) return '🥃';
+    if (/gaseos|refres|soda|cola/.test(n))      return '🥤';
+    if (/agua/.test(n))                         return '💧';
+    if (/jugo|nectar/.test(n))                  return '🧃';
+    if (/energi/.test(n))                       return '⚡';
+    if (/snack|pique|papa|fritura|golos|dulce/.test(n)) return '🍿';
+    if (/cigarr|tabaco/.test(n))                return '🚬';
+    if (/hielo/.test(n))                        return '🧊';
+    if (/desech|vaso|servil/.test(n))           return '🥢';
+    return '🏷️';
+}
+
+function matchCategoria(item) {
+    if (!catFiltro.value) return true;
+    if (catFiltro.value === 'sin') return !item.categoria_id;
+    return item.categoria_id == catFiltro.value;
+}
+
+// Chips: solo categorías con productos/sixpacks disponibles
+const chipsCategorias = computed(() => {
+    const cuenta = id => productos.value.filter(p => p.categoria_id == id).length
+                       + sixpacks.value.filter(sp => sp.categoria_id == id && stockDisponible(sp) > 0).length;
+
+    const chips = categorias.value
+        .map(c => ({ key: c.id, label: c.nombre, icono: catIcono(c.nombre), count: cuenta(c.id) }))
+        .filter(c => c.count > 0);
+
+    const sinCat = productos.value.filter(p => !p.categoria_id).length
+                 + sixpacks.value.filter(sp => !sp.categoria_id && stockDisponible(sp) > 0).length;
+    if (sinCat) chips.push({ key: 'sin', label: 'Sin categoría', icono: '❔', count: sinCat });
+
+    return chips;
+});
+
+const totalDisponibles = computed(() =>
+    productos.value.length + sixpacks.value.filter(sp => stockDisponible(sp) > 0).length
+);
+
 const prodFiltrados = computed(() => {
     const s = searchProd.value.toLowerCase();
-    return s
-        ? productos.value.filter(p =>
+    return productos.value.filter(p =>
+        matchCategoria(p) && (
+            !s ||
             p.nombre.toLowerCase().includes(s) ||
-            (p.codigo_barras ?? '').toLowerCase().includes(s))
-        : productos.value;
+            (p.codigo_barras ?? '').toLowerCase().includes(s)
+        )
+    );
 });
 
 function stockDisponible(sp) {
@@ -129,7 +259,7 @@ function stockDisponible(sp) {
 const sixpacksFiltrados = computed(() => {
     const s = searchProd.value.toLowerCase();
     return sixpacks.value.filter(sp =>
-        stockDisponible(sp) > 0 && (
+        stockDisponible(sp) > 0 && matchCategoria(sp) && (
             !s ||
             sp.nombre.toLowerCase().includes(s) ||
             (sp.codigo_barras ?? '').toLowerCase().includes(s)
@@ -162,7 +292,8 @@ const total = computed(() =>
 
 async function loadProductos() {
     const { data } = await axios.get(`/api/admin/sucursales/${sucId.value}/productos`);
-    productos.value = data.productos.filter(p => p.activo && p.stock_actual > 0);
+    productos.value  = data.productos.filter(p => p.activo && p.stock_actual > 0);
+    categorias.value = data.categorias ?? [];
 }
 
 async function loadSixpacks() {
@@ -264,7 +395,7 @@ async function registrarVenta() {
 
     saving.value = true;
     try {
-        await axios.post(`/api/admin/sucursales/${sucId.value}/ventas`, {
+        const { data: venta } = await axios.post(`/api/admin/sucursales/${sucId.value}/ventas`, {
             cliente_id:  clienteId.value || null,
             metodo_pago: metodoPago.value,
             comentarios: comentarios.value || null,
@@ -273,6 +404,9 @@ async function registrarVenta() {
                 : { producto_id: i.producto_id, cantidad: i.cantidad, precio_unitario: i.precio_unitario }
             ),
         });
+        if (confirm(`Venta ${venta.folio} registrada. ¿Imprimir voucher?`)) {
+            imprimirVoucher(venta);
+        }
         cart.value        = [];
         clienteId.value   = null;
         metodoPago.value  = 'efectivo';
@@ -309,11 +443,31 @@ watch(tab, (t) => {
 
 // ── Format helpers ────────────────────────────────────────────
 const fmtBs    = v => `Bs ${parseFloat(v).toFixed(2)}`;
-const fmtFecha = d => d ? new Date(d).toLocaleString('es-BO') : '—';
+const fmtNum   = v => (parseFloat(v) || 0).toFixed(2);
+const fmtFecha = d => d ? new Date(d).toLocaleString('es-BO', { timeZone: TZ }) : '—';
 const userName  = u => u?.nickname || u?.name || '—';
 
-const pagoColor = { efectivo: 'bg-green-100 text-green-700', tarjeta: 'bg-blue-100 text-blue-700', transferencia: 'bg-purple-100 text-purple-700' };
-const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia' };
+const pagoColor = { efectivo: 'bg-green-100 text-green-700', tarjeta: 'bg-blue-100 text-blue-700', qr: 'bg-cyan-100 text-cyan-700', transferencia: 'bg-purple-100 text-purple-700', credito: 'bg-amber-100 text-amber-700' };
+const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', qr: 'QR', transferencia: 'Transferencia', credito: 'Crédito' };
+
+// Card por método de pago (historial)
+const pagoCard = {
+    efectivo:      { dot: 'bg-green-500',  text: 'text-green-700',  ring: 'border-green-200',  soft: 'bg-green-50',  ringFocus: 'ring-green-400'  },
+    tarjeta:       { dot: 'bg-blue-500',   text: 'text-blue-700',   ring: 'border-blue-200',   soft: 'bg-blue-50',   ringFocus: 'ring-blue-400'   },
+    qr:            { dot: 'bg-cyan-500',   text: 'text-cyan-700',   ring: 'border-cyan-200',   soft: 'bg-cyan-50',   ringFocus: 'ring-cyan-400'   },
+    transferencia: { dot: 'bg-purple-500', text: 'text-purple-700', ring: 'border-purple-200', soft: 'bg-purple-50', ringFocus: 'ring-purple-400' },
+    credito:       { dot: 'bg-amber-500',  text: 'text-amber-700',  ring: 'border-amber-200',  soft: 'bg-amber-50',  ringFocus: 'ring-amber-400'  },
+};
+
+const resumenMetodos = computed(() =>
+    Object.entries(stats.value.por_metodo ?? {}).map(([metodo, d]) => ({
+        metodo,
+        label: pagoLabel[metodo] ?? metodo,
+        count: d.count ?? 0,
+        total: d.total ?? 0,
+        estilo: pagoCard[metodo] ?? { dot: 'bg-gray-400', text: 'text-gray-700', ring: 'border-gray-200', soft: 'bg-gray-50', ringFocus: 'ring-gray-400' },
+    })),
+);
 </script>
 
 <template>
@@ -352,6 +506,24 @@ const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Tr
             <input v-model="searchProd" type="text" placeholder="Buscar por nombre o código de barras..."
               @keyup.enter="onSearchEnter"
               class="w-full border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+          </div>
+
+          <!-- Chips de categorías -->
+          <div v-if="chipsCategorias.length" class="flex flex-wrap gap-1 mt-2">
+            <button @click="catFiltro = null"
+              :class="['flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold transition-colors',
+                catFiltro === null ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50']">
+              <span>🗂️</span>Todos
+              <span :class="['rounded-full px-1 leading-none', catFiltro === null ? 'bg-white/25' : 'bg-gray-100 text-gray-500']">{{ totalDisponibles }}</span>
+            </button>
+            <button v-for="c in chipsCategorias" :key="c.key" @click="catFiltro = c.key"
+              :title="c.label"
+              :class="['flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold transition-colors max-w-[150px]',
+                catFiltro === c.key ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50']">
+              <span>{{ c.icono }}</span>
+              <span class="truncate">{{ c.label }}</span>
+              <span :class="['rounded-full px-1 leading-none', catFiltro === c.key ? 'bg-white/25' : 'bg-gray-100 text-gray-500']">{{ c.count }}</span>
+            </button>
           </div>
         </div>
         <div class="flex-1 overflow-y-auto p-3">
@@ -458,7 +630,9 @@ const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Tr
                 class="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white">
                 <option value="efectivo">Efectivo</option>
                 <option value="tarjeta">Tarjeta</option>
+                <option value="qr">QR</option>
                 <option value="transferencia">Transferencia</option>
+                <option value="credito">Crédito</option>
               </select>
             </div>
             <div>
@@ -570,54 +744,71 @@ const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Tr
     </div>
 
     <!-- ══════════════ TAB: HISTORIAL ══════════════ -->
-    <div v-if="tab === 'historial'" class="flex flex-col gap-4">
+    <div v-if="tab === 'historial'" class="flex flex-col gap-3">
 
       <!-- Stats -->
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div class="bg-emerald-600 text-white rounded-xl p-4 flex items-center gap-3">
-          <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center flex-shrink-0">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div class="bg-emerald-600 text-white rounded-lg p-2.5 flex items-center gap-2.5">
+          <div class="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z"/>
             </svg>
           </div>
           <div>
-            <p class="text-xs text-white/70">Ventas Completadas</p>
-            <p class="text-xl font-bold leading-tight">{{ fmtBs(stats.total_completadas) }}</p>
+            <p class="text-[10px] uppercase tracking-wide text-white/70">Ventas Completadas</p>
+            <p class="text-lg font-bold leading-tight">{{ fmtBs(stats.total_completadas) }}</p>
           </div>
         </div>
-        <div class="bg-red-600 text-white rounded-xl p-4 flex items-center gap-3">
-          <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center flex-shrink-0">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <div class="bg-red-600 text-white rounded-lg p-2.5 flex items-center gap-2.5">
+          <div class="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636"/>
             </svg>
           </div>
           <div>
-            <p class="text-xs text-white/70">Ventas Canceladas</p>
-            <p class="text-xl font-bold leading-tight">{{ fmtBs(stats.total_canceladas) }}</p>
+            <p class="text-[10px] uppercase tracking-wide text-white/70">Ventas Canceladas</p>
+            <p class="text-lg font-bold leading-tight">{{ fmtBs(stats.total_canceladas) }}</p>
           </div>
         </div>
-        <div class="bg-blue-600 text-white rounded-xl p-4 flex items-center gap-3">
-          <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center flex-shrink-0">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <div class="bg-blue-600 text-white rounded-lg p-2.5 flex items-center gap-2.5">
+          <div class="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z"/>
             </svg>
           </div>
           <div>
-            <p class="text-xs text-white/70">Total Ventas</p>
-            <p class="text-xl font-bold leading-tight">{{ stats.count }}</p>
+            <p class="text-[10px] uppercase tracking-wide text-white/70">Total Ventas</p>
+            <p class="text-lg font-bold leading-tight">{{ stats.count }}</p>
           </div>
         </div>
-        <div class="bg-amber-500 text-white rounded-xl p-4 flex items-center gap-3">
-          <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center flex-shrink-0">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <div class="bg-amber-500 text-white rounded-lg p-2.5 flex items-center gap-2.5">
+          <div class="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
             </svg>
           </div>
           <div>
-            <p class="text-xs text-white/70">Ganancia estimada</p>
-            <p class="text-xl font-bold leading-tight">{{ fmtBs(stats.ganancia ?? 0) }}</p>
+            <p class="text-[10px] uppercase tracking-wide text-white/70">Ganancia estimada</p>
+            <p class="text-lg font-bold leading-tight">{{ fmtBs(stats.ganancia ?? 0) }}</p>
           </div>
         </div>
+      </div>
+
+      <!-- Desglose por método de pago (click para filtrar) -->
+      <div v-if="resumenMetodos.length" class="flex flex-wrap items-center gap-2">
+        <button v-for="m in resumenMetodos" :key="m.metodo" @click="filtrarMetodo(m.metodo)"
+          :title="`Filtrar por ${m.label}`"
+          :class="['flex items-center gap-2 border rounded-lg px-2.5 py-1.5 text-left transition-all',
+            metodoFiltro === m.metodo
+              ? [m.estilo.ring, m.estilo.soft, 'ring-2 ring-offset-1', m.estilo.ringFocus]
+              : [m.estilo.ring, 'bg-white hover:bg-gray-50']]">
+          <span :class="['w-2 h-2 rounded-full flex-shrink-0', m.estilo.dot]"></span>
+          <span class="text-[11px] font-semibold text-gray-500">{{ m.label }}</span>
+          <span :class="['text-sm font-bold leading-none', m.estilo.text]">{{ fmtBs(m.total) }}</span>
+          <span class="text-[10px] text-gray-400 bg-gray-100 rounded-full px-1.5 py-0.5 leading-none">{{ m.count }}</span>
+        </button>
+        <button v-if="metodoFiltro" @click="metodoFiltro = null"
+          class="text-[11px] text-gray-500 hover:text-gray-700 underline px-1">Quitar filtro</button>
       </div>
 
       <!-- Filtros -->
@@ -628,8 +819,18 @@ const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Tr
             class="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white">
         </div>
         <div>
+          <label class="block text-xs text-gray-500 mb-1">Hora desde</label>
+          <input v-model="horaDesde" type="time"
+            class="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white">
+        </div>
+        <div>
           <label class="block text-xs text-gray-500 mb-1">Hasta</label>
           <input v-model="hasta" type="date"
+            class="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Hora hasta</label>
+          <input v-model="horaHasta" type="time"
             class="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white">
         </div>
         <button @click="loadHistorial"
@@ -665,10 +866,10 @@ const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Tr
               </tr>
             </thead>
             <tbody>
-              <tr v-if="!ventas.length">
+              <tr v-if="!ventasPagina.length">
                 <td colspan="9" class="py-10 text-center text-gray-400">No hay ventas en este período.</td>
               </tr>
-              <tr v-for="v in ventas" :key="v.id"
+              <tr v-for="v in ventasPagina" :key="v.id"
                 :class="['border-t border-gray-50 transition-colors',
                   v.estado === 'cancelada' ? 'opacity-50 bg-red-50/30' : 'hover:bg-emerald-50/20']">
                 <td class="px-3 py-2">
@@ -680,6 +881,13 @@ const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Tr
                         <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
                       </svg>
                       Ver venta
+                    </button>
+                    <button @click="imprimirVoucher(v)"
+                      class="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors">
+                      <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 0 1 1.913-.247m10.5 0a48.536 48.536 0 0 0-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5Zm-3 0h.008v.008H15V10.5Z"/>
+                      </svg>
+                      Imprimir voucher
                     </button>
                     <div v-if="v.estado === 'completada'" class="border-t border-gray-100 my-0.5"/>
                     <button v-if="v.estado === 'completada'" @click="cancelar(v)"
@@ -718,10 +926,83 @@ const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Tr
             </tbody>
           </table>
         </div>
+
+        <!-- Paginación -->
+        <div v-if="ventasFiltradas.length" class="flex flex-wrap items-center justify-between gap-3 px-3 py-2 border-t border-gray-100 bg-gray-50/60">
+          <div class="flex items-center gap-2 text-xs text-gray-500">
+            <span>Mostrando {{ (pagina - 1) * porPagina + 1 }}–{{ Math.min(pagina * porPagina, ventasFiltradas.length) }} de {{ ventasFiltradas.length }}</span>
+            <select v-model.number="porPagina"
+              class="border border-gray-200 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
+              <option :value="25">25 / pág</option>
+              <option :value="50">50 / pág</option>
+              <option :value="100">100 / pág</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-1">
+            <button @click="irPagina(1)" :disabled="pagina === 1"
+              class="px-2 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 disabled:opacity-40 hover:bg-gray-100">«</button>
+            <button @click="irPagina(pagina - 1)" :disabled="pagina === 1"
+              class="px-2 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 disabled:opacity-40 hover:bg-gray-100">‹</button>
+            <span class="px-2 text-xs font-semibold text-gray-700">{{ pagina }} / {{ totalPaginas }}</span>
+            <button @click="irPagina(pagina + 1)" :disabled="pagina >= totalPaginas"
+              class="px-2 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 disabled:opacity-40 hover:bg-gray-100">›</button>
+            <button @click="irPagina(totalPaginas)" :disabled="pagina >= totalPaginas"
+              class="px-2 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 disabled:opacity-40 hover:bg-gray-100">»</button>
+          </div>
+        </div>
       </div>
 
     </div>
 
+  </div>
+
+  <!-- ══════════════ VOUCHER (oculto, solo para imprimir) ══════════════ -->
+  <div style="display:none">
+    <div ref="voucherRef" class="voucher" v-if="ventaPrint">
+      <div class="vc">
+        <div class="v-title">ELIXIR DORADO</div>
+        <div class="v-sub">{{ sucursal?.nombre ?? 'Sucursal' }}</div>
+        <div class="v-sub" v-if="sucursal?.direccion">{{ sucursal.direccion }}</div>
+        <div class="v-sub" v-if="sucursal?.telefono">Tel: {{ sucursal.telefono }}</div>
+      </div>
+      <div class="v-sep"></div>
+      <div class="vc vb">VOUCHER DE VENTA</div>
+      <div class="vc v-sub">{{ ventaPrint.folio }}</div>
+      <div class="v-sep"></div>
+      <div class="v-sub">Fecha: {{ fmtFecha(ventaPrint.created_at) }}</div>
+      <div class="v-sub">Cliente: {{ ventaPrint.cliente?.nombre ?? 'S/N' }}</div>
+      <div class="v-sub">Cajero: {{ userName(ventaPrint.usuario) }}</div>
+      <div class="v-sub">Pago: {{ pagoLabel[ventaPrint.metodo_pago] ?? ventaPrint.metodo_pago }}</div>
+      <div class="v-sep"></div>
+      <table>
+        <thead>
+          <tr>
+            <th>Descripción</th>
+            <th style="width:22px" class="vr">Cnt</th>
+            <th style="width:50px" class="vr">P/U</th>
+            <th style="width:56px" class="vr">Importe</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="d in ventaPrint.detalles" :key="d.id">
+            <td>{{ d.producto?.nombre ?? 'Producto' }}</td>
+            <td class="vr">{{ d.cantidad }}</td>
+            <td class="vr">{{ fmtNum(d.precio_unitario) }}</td>
+            <td class="vr">{{ fmtNum(d.subtotal ?? (d.cantidad * d.precio_unitario)) }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="v-sep"></div>
+      <div class="vr v-total">TOTAL: Bs {{ fmtNum(ventaPrint.total) }}</div>
+      <div class="v-sub vr">Son: {{ ventaPrint.detalles?.reduce((s, d) => s + Number(d.cantidad), 0) }} artículo(s)</div>
+      <div v-if="ventaPrint.comentarios" class="v-sub">Obs: {{ ventaPrint.comentarios }}</div>
+      <div v-if="ventaPrint.estado === 'cancelada'" class="vc vb">*** VENTA CANCELADA ***</div>
+      <div class="v-sep"></div>
+      <div class="vc v-foot">
+        ¡Gracias por su compra!<br>
+        Impreso: {{ fmtFecha(new Date()) }}
+      </div>
+    </div>
   </div>
 
   <!-- ══════════════ MODAL: VER VENTA ══════════════ -->
@@ -735,12 +1016,21 @@ const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Tr
             <h3 class="text-base font-bold text-gray-800">{{ ventaDetalle.folio }}</h3>
             <p class="text-xs text-gray-400">{{ fmtFecha(ventaDetalle.created_at) }}</p>
           </div>
+          <div class="flex items-center gap-2">
+          <button @click="imprimirVoucher(ventaDetalle)"
+            class="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 0 1 1.913-.247m10.5 0a48.536 48.536 0 0 0-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5Zm-3 0h.008v.008H15V10.5Z"/>
+            </svg>
+            Imprimir voucher
+          </button>
           <button @click="ventaDetalle = null"
             class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
             </svg>
           </button>
+          </div>
         </div>
 
         <div class="p-5 space-y-4">

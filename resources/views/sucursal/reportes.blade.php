@@ -305,7 +305,7 @@ const COLORS = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4','#84
 // ── Gráfica: Forma de pago (horizontal bar) ───────────────────────────
 (function() {
     const ctx = document.getElementById('chart-pago').getContext('2d');
-    const colors = { efectivo: '#22c55e', tarjeta: '#3b82f6', transferencia: '#a855f7' };
+    const colors = { efectivo: '#22c55e', tarjeta: '#3b82f6', qr: '#06b6d4', transferencia: '#a855f7', credito: '#f59e0b' };
     new Chart(ctx, {
         type: 'bar',
         data: {

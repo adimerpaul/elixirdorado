@@ -176,15 +176,21 @@
         </div>
         <div class="mb-4">
             <div class="text-sm font-bold text-gray-600 mb-2">Forma de Pago:</div>
-            <div class="grid grid-cols-3 gap-2">
+            <div class="grid grid-cols-2 gap-2">
                 <button onclick="seleccionarPago('efectivo')" class="payment-btn" id="pago-efectivo" style="background:#dcfce7;color:#166534;border-color:#86efac;">
                     <i class="fas fa-money-bill-wave text-xl block mb-1"></i>Efectivo
                 </button>
                 <button onclick="seleccionarPago('tarjeta')" class="payment-btn" id="pago-tarjeta" style="background:#dbeafe;color:#1e40af;border-color:#93c5fd;">
                     <i class="fas fa-credit-card text-xl block mb-1"></i>Tarjeta
                 </button>
+                <button onclick="seleccionarPago('qr')" class="payment-btn" id="pago-qr" style="background:#cffafe;color:#155e75;border-color:#67e8f9;">
+                    <i class="fas fa-qrcode text-xl block mb-1"></i>QR
+                </button>
                 <button onclick="seleccionarPago('transferencia')" class="payment-btn" id="pago-transferencia" style="background:#f3e8ff;color:#6b21a8;border-color:#d8b4fe;">
-                    <i class="fas fa-mobile-alt text-xl block mb-1"></i>QR/Transfer
+                    <i class="fas fa-mobile-alt text-xl block mb-1"></i>Transferencia
+                </button>
+                <button onclick="seleccionarPago('credito')" class="payment-btn" id="pago-credito" style="background:#fef3c7;color:#92400e;border-color:#fcd34d;">
+                    <i class="fas fa-hand-holding-usd text-xl block mb-1"></i>Crédito
                 </button>
             </div>
         </div>
@@ -438,7 +444,7 @@ function cerrarModalCobro() { document.getElementById('modal-cobro').classList.a
 
 function seleccionarPago(metodo) {
     metodoPago = metodo;
-    ['efectivo','tarjeta','transferencia'].forEach(m => document.getElementById('pago-'+m).classList.remove('selected'));
+    ['efectivo','tarjeta','qr','transferencia','credito'].forEach(m => document.getElementById('pago-'+m).classList.remove('selected'));
     document.getElementById('pago-'+metodo).classList.add('selected');
     document.getElementById('div-monto-efectivo').style.display = metodo === 'efectivo' ? '' : 'none';
     if (metodo !== 'efectivo') document.getElementById('div-cambio').classList.add('hidden');

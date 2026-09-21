@@ -221,6 +221,8 @@ class ProductoController extends Controller
                 'cantidad'         => $d->cantidad,
                 'cantidad_vendida' => $d->cantidad_vendida,
                 'disponible'       => $d->cantidad - $d->cantidad_vendida,
+                'lote'             => $d->lote,
+                'fecha_vencimiento' => $d->fecha_vencimiento?->format('Y-m-d'),
                 'precio_unitario'  => $d->precio_unitario,
                 'precio_total'     => $d->precio_total,
             ]);
@@ -309,6 +311,50 @@ class ProductoController extends Controller
         return response()->json([
             'bajo_minimo'  => $bajoMinimo,
             'sobre_maximo' => $sobreMaximo,
+        ]);
+    }
+
+    public function vencimientos(Sucursal $sucursal)
+    {
+        // Fecha de hoy en Bolivia, comparada a medianoche igual que fecha_vencimiento
+        $hoy = \Illuminate\Support\Carbon::parse(now('America/La_Paz')->toDateString());
+
+        $lotes = DetalleCompra::with([
+                'producto:id,nombre,codigo_barras,imagen,categoria_id,precio_venta,stock_actual',
+                'producto.categoria:id,nombre',
+                'compra:id,proveedor_id,created_at',
+                'compra.proveedor:id,nombre',
+            ])
+            ->whereHas('compra', fn ($q) => $q->where('sucursal_id', $sucursal->id)->where('estado', 'activa'))
+            ->whereNotNull('fecha_vencimiento')
+            ->whereColumn('cantidad_vendida', '<', 'cantidad')
+            ->orderBy('fecha_vencimiento')
+            ->get()
+            ->map(function ($d) use ($hoy) {
+                $vence      = $d->fecha_vencimiento->copy()->startOfDay();
+                $disponible = $d->cantidad - $d->cantidad_vendida;
+
+                return [
+                    'id'                => $d->id,
+                    'compra_id'         => $d->compra_id,
+                    'fecha_compra'      => $d->compra->created_at,
+                    'proveedor'         => $d->compra->proveedor?->nombre ?? '—',
+                    'producto_id'       => $d->producto_id,
+                    'producto'          => $d->producto,
+                    'lote'              => $d->lote,
+                    'fecha_vencimiento' => $vence->format('Y-m-d'),
+                    'dias'              => (int) $hoy->diffInDays($vence, false),
+                    'cantidad'          => $d->cantidad,
+                    'disponible'        => $disponible,
+                    'precio_unitario'   => $d->precio_unitario,
+                    'valor'             => round($disponible * $d->precio_unitario, 2),
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'hoy'   => $hoy->format('Y-m-d'),
+            'lotes' => $lotes,
         ]);
     }
 

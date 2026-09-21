@@ -55,7 +55,9 @@
                 <option value="">Todos</option>
                 <option value="efectivo">Efectivo</option>
                 <option value="tarjeta">Tarjeta</option>
+                <option value="qr">QR</option>
                 <option value="transferencia">Transferencia</option>
+                <option value="credito">Crédito</option>
             </select>
         </div>
         <div class="flex-1">

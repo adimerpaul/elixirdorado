@@ -125,6 +125,7 @@ const SUCURSAL_MODULES = [
     { key: 'proveedores',       label: 'Proveedores' },
     { key: 'stock.minimo',      label: 'Stock Mínimo' },
     { key: 'stock.maximo',      label: 'Stock Máximo' },
+    { key: 'vencimientos',      label: 'Vencimientos' },
 ];
 
 const moduleLabels = Object.fromEntries(SUCURSAL_MODULES.map(m => [m.key, m.label]));

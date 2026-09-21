@@ -892,7 +892,7 @@ Route::middleware('auth')->group(function () {
             'items.*.cantidad'    => 'required|integer|min:1',
             'items.*.precio'      => 'required|numeric',
             'total'               => 'required|numeric',
-            'metodo_pago'         => 'required|in:efectivo,tarjeta,transferencia',
+            'metodo_pago'         => 'required|in:efectivo,tarjeta,qr,transferencia,credito',
         ]);
 
         $folio    = 'VENTA-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));

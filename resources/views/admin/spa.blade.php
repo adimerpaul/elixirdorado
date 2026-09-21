@@ -6,6 +6,8 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>Elixir Dorado — Admin</title>
     @vite(['resources/css/app.css', 'resources/js/admin/main.js'])
+    {{-- Impresión de vouchers/tickets --}}
+    <script src="https://unpkg.com/printd/printd.umd.min.js"></script>
 </head>
 <body class="bg-gray-100">
     <div id="admin-app"></div>

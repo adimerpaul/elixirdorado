@@ -51,6 +51,9 @@ class CompraController extends Controller
             'items.*.cantidad'       => 'required|integer|min:1',
             'items.*.precio_unitario' => 'required|numeric|min:0',
             'items.*.precio_total'    => 'nullable|numeric|min:0',
+            'items.*.precio_venta'    => 'nullable|numeric|min:0',
+            'items.*.lote'            => 'nullable|string|max:100',
+            'items.*.fecha_vencimiento' => 'nullable|date',
         ]);
 
         DB::transaction(function () use ($data, $sucursal, $request) {
@@ -77,13 +80,18 @@ class CompraController extends Controller
                     'cantidad'        => $item['cantidad'],
                     'precio_unitario' => $item['precio_unitario'],
                     'precio_total'    => $precioTotal,
+                    'lote'            => $item['lote'] ?? null,
+                    'fecha_vencimiento' => $item['fecha_vencimiento'] ?? null,
                 ]);
+
+                $extra = ['precio_compra' => $item['precio_unitario']];
+                if (isset($item['precio_venta'])) {
+                    $extra['precio_venta'] = $item['precio_venta'];
+                }
 
                 Producto::where('id', $item['producto_id'])
                     ->where('sucursal_id', $sucursal->id)
-                    ->increment('stock_actual', $item['cantidad'], [
-                        'precio_compra' => $item['precio_unitario'],
-                    ]);
+                    ->increment('stock_actual', $item['cantidad'], $extra);
             }
 
             $this->_last = $compra->load('user:id,name,nickname', 'proveedor:id,nombre', 'detalles.producto:id,nombre,codigo_barras');

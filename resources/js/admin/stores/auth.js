@@ -27,7 +27,7 @@ export const useAuthStore = defineStore('auth', () => {
     const SUCURSAL_MODULES = [
         'productos', 'ventas.nueva', 'ventas.historial',
         'compras.nueva', 'compras.historial', 'proveedores',
-        'stock.minimo', 'stock.maximo',
+        'stock.minimo', 'stock.maximo', 'vencimientos',
     ];
 
     function can(perm) {

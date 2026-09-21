@@ -9,6 +9,7 @@ class DetalleCompra extends Model
     protected $fillable = [
         'compra_id', 'producto_id', 'cantidad',
         'precio_unitario', 'precio_total', 'cantidad_vendida',
+        'lote', 'fecha_vencimiento',
     ];
 
     protected function casts(): array
@@ -18,6 +19,7 @@ class DetalleCompra extends Model
             'cantidad_vendida' => 'integer',
             'precio_unitario'  => 'decimal:2',
             'precio_total'     => 'decimal:2',
+            'fecha_vencimiento' => 'date:Y-m-d',
         ];
     }
 

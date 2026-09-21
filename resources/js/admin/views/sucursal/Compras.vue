@@ -149,6 +149,9 @@ function agregarProducto(p) {
             cantidad:        1,
             precio_unitario: precioCompra,
             total_linea:     precioCompra,
+            precio_venta:    parseFloat(p.precio_venta) || 0,
+            lote:              '',
+            fecha_vencimiento: '',
         });
     }
 }
@@ -222,6 +225,50 @@ function actualizarTotalItem(item, value) {
     item.precio_unitario = round2(totalItem / cantidad);
 }
 
+// ── Vencimiento y ganancia ────────────────────────────────────
+function diasParaVencer(item) {
+    if (!item.fecha_vencimiento) return null;
+    const [y, m, d] = item.fecha_vencimiento.split('-').map(Number);
+    const vence = new Date(y, m - 1, d);
+    const hoy   = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    return Math.round((vence - hoy) / 86400000);
+}
+
+function diasLabel(dias) {
+    if (dias < 0)   return `Vencido hace ${-dias} día(s)`;
+    if (dias === 0) return 'Vence hoy';
+    return `Vence en ${dias} día(s)`;
+}
+
+function diasColor(dias) {
+    if (dias <= 0)  return 'bg-red-100 text-red-700';
+    if (dias <= 30) return 'bg-orange-100 text-orange-700';
+    if (dias <= 90) return 'bg-yellow-100 text-yellow-700';
+    return 'bg-green-100 text-green-700';
+}
+
+// % de ganancia sobre el costo: (venta - costo) / costo
+function gananciaPct(item) {
+    const costo = parseNumber(item.precio_unitario);
+    const venta = parseNumber(item.precio_venta);
+    if (!Number.isFinite(costo) || costo <= 0 || !Number.isFinite(venta)) return null;
+    return round2(((venta - costo) / costo) * 100);
+}
+
+function gananciaBs(item) {
+    const costo = parseNumber(item.precio_unitario);
+    const venta = parseNumber(item.precio_venta);
+    return Number.isFinite(costo) && Number.isFinite(venta) ? venta - costo : 0;
+}
+
+function actualizarVentaDesdeGanancia(item, value) {
+    const pct   = parseNumber(value);
+    const costo = parseNumber(item.precio_unitario);
+    if (!Number.isFinite(pct) || !Number.isFinite(costo) || costo <= 0) return;
+    item.precio_venta = round2(costo * (1 + pct / 100));
+}
+
 async function registrarCompra() {
     errores.value = {};
     if (!proveedorId.value)   { errores.value.proveedor = 'Selecciona un proveedor.'; return; }
@@ -238,6 +285,9 @@ async function registrarCompra() {
                 cantidad:        i.cantidad,
                 precio_unitario: i.precio_unitario,
                 precio_total:    precioTotalNumero(i),
+                precio_venta:    Number.isFinite(parseNumber(i.precio_venta)) ? parseNumber(i.precio_venta) : null,
+                lote:              i.lote?.trim() || null,
+                fecha_vencimiento: i.fecha_vencimiento || null,
             })),
         });
         cart.value        = [];
@@ -273,6 +323,7 @@ watch(tab, (t) => { if (t === 'historial') loadHistorial(); });
 // ── Format helpers ────────────────────────────────────────────
 const fmtBs    = v => `Bs ${parseFloat(v).toFixed(2)}`;
 const fmtFecha = d => d ? new Date(d).toLocaleString('es-BO') : '—';
+const fmtFechaCorta = d => d ? d.slice(0, 10).split('-').reverse().join('/') : '—';
 const userName  = u => u?.nickname || u?.name || '—';
 
 const pagoColor = { efectivo: 'bg-green-100 text-green-700', tarjeta: 'bg-blue-100 text-blue-700', transferencia: 'bg-purple-100 text-purple-700' };
@@ -433,8 +484,8 @@ const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Tr
                     Selecciona productos del panel izquierdo
                   </td>
                 </tr>
-                <tr v-for="(item, idx) in cart" :key="item.producto_id"
-                  class="border-t border-gray-50 hover:bg-gray-50/50">
+                <template v-for="(item, idx) in cart" :key="item.producto_id">
+                <tr class="border-t border-gray-100">
                   <td class="px-3 py-2">
                     <p class="font-semibold text-gray-800">{{ item.nombre }}</p>
                     <p class="text-gray-400" style="font-size:10px">{{ item.codigo_barras ?? '—' }} · Stock: {{ item.stock_actual }}</p>
@@ -470,6 +521,48 @@ const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Tr
                     </button>
                   </td>
                 </tr>
+                <tr>
+                  <td colspan="5" class="px-3 pb-2.5 pt-0">
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 rounded-lg bg-gray-50 px-2.5 py-2">
+                      <div>
+                        <label class="block text-[10px] font-semibold text-gray-500 mb-0.5">Lote</label>
+                        <input v-model="item.lote" type="text" maxlength="100" placeholder="Opcional"
+                          class="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      </div>
+                      <div>
+                        <label class="block text-[10px] font-semibold text-gray-500 mb-0.5">Fecha de vencimiento</label>
+                        <input v-model="item.fecha_vencimiento" type="date"
+                          class="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <span v-if="diasParaVencer(item) !== null"
+                          :class="['inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-semibold', diasColor(diasParaVencer(item))]">
+                          {{ diasLabel(diasParaVencer(item)) }}
+                        </span>
+                      </div>
+                      <div>
+                        <label class="block text-[10px] font-semibold text-gray-500 mb-0.5">Precio de venta</label>
+                        <div class="flex items-center gap-1">
+                          <span class="text-gray-400">Bs</span>
+                          <input v-model.number="item.precio_venta" type="number" min="0" step="0.01"
+                            class="w-full text-right border border-gray-200 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                      </div>
+                      <div>
+                        <label class="block text-[10px] font-semibold text-gray-500 mb-0.5">% Ganancia</label>
+                        <div class="flex items-center gap-1">
+                          <input :value="gananciaPct(item) ?? ''" type="number" step="0.01"
+                            @change="actualizarVentaDesdeGanancia(item, $event.target.value)"
+                            :class="['w-full text-right border rounded-lg px-2 py-1 text-xs font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-blue-500',
+                              gananciaPct(item) !== null && gananciaPct(item) < 0 ? 'border-red-300 text-red-600' : 'border-gray-200 text-emerald-700']">
+                          <span class="text-gray-400">%</span>
+                        </div>
+                        <p :class="['mt-1 text-[10px] font-semibold', gananciaBs(item) < 0 ? 'text-red-600' : 'text-gray-500']">
+                          {{ gananciaBs(item) < 0 ? 'Pérdida' : 'Gana' }} {{ fmtBs(Math.abs(gananciaBs(item))) }} c/u
+                        </p>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+                </template>
               </tbody>
               <tfoot v-if="cart.length" class="border-t-2 border-gray-200 bg-gray-50">
                 <tr>
@@ -673,6 +766,8 @@ const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Tr
               <thead class="bg-gray-50 text-gray-400 uppercase">
                 <tr>
                   <th class="px-3 py-2 text-left font-semibold">Producto</th>
+                  <th class="px-3 py-2 text-left font-semibold">Lote</th>
+                  <th class="px-3 py-2 text-left font-semibold">Vence</th>
                   <th class="px-3 py-2 text-center font-semibold w-20">Cant.</th>
                   <th class="px-3 py-2 text-right font-semibold w-28">Unitario</th>
                   <th class="px-3 py-2 text-right font-semibold w-28">Total</th>
@@ -681,6 +776,16 @@ const pagoLabel = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Tr
               <tbody>
                 <tr v-for="d in compraDetalle.detalles" :key="d.id" class="border-t border-gray-50">
                   <td class="px-3 py-2 font-semibold text-gray-700">{{ d.producto?.nombre ?? 'Producto eliminado' }}</td>
+                  <td class="px-3 py-2 text-gray-600">{{ d.lote || '—' }}</td>
+                  <td class="px-3 py-2 whitespace-nowrap">
+                    <template v-if="d.fecha_vencimiento">
+                      <span class="text-gray-600">{{ fmtFechaCorta(d.fecha_vencimiento) }}</span>
+                      <span :class="['ml-1 inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold', diasColor(diasParaVencer(d))]">
+                        {{ diasParaVencer(d) < 0 ? 'Vencido' : `${diasParaVencer(d)} d` }}
+                      </span>
+                    </template>
+                    <span v-else class="text-gray-400">—</span>
+                  </td>
                   <td class="px-3 py-2 text-center text-gray-600">{{ d.cantidad }}</td>
                   <td class="px-3 py-2 text-right text-gray-600">{{ fmtBs(d.precio_unitario) }}</td>
                   <td class="px-3 py-2 text-right font-bold text-gray-800">{{ fmtBs(d.precio_total ?? (d.cantidad * d.precio_unitario)) }}</td>
