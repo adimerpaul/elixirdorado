@@ -74,6 +74,8 @@ const desde        = ref(today());
 const hasta        = ref(today());
 const horaDesde    = ref('00:01');
 const horaHasta    = ref('23:59');
+const vendedorId   = ref(null);   // null = todos
+const vendedores   = ref([]);
 const ventaDetalle = ref(null);
 
 // Fecha de hoy en la zona horaria del negocio (no en UTC)
@@ -90,10 +92,12 @@ async function loadHistorial() {
                 hasta: hasta.value,
                 hora_desde: horaDesde.value || '00:00',
                 hora_hasta: horaHasta.value || '23:59',
+                usuario_id: vendedorId.value || undefined,
             },
         });
         ventas.value = data.ventas;
         stats.value  = data.stats;
+        vendedores.value = data.vendedores ?? [];
         pagina.value = 1;
         metodoFiltro.value = null;
     } finally {
@@ -462,6 +466,7 @@ watch(total, () => { if (esMixto.value) onMontoEfectivoChange(); });
 watch(sucId, async () => {
     cart.value      = [];
     clienteId.value = null;
+    vendedorId.value = null;
     tab.value = tabFromRoute();
     await Promise.all([loadProductos(), loadSixpacks(), loadClientes(), loadHistorial()]);
 }, { immediate: true });
@@ -906,6 +911,14 @@ const resumenMetodos = computed(() =>
           <label class="block text-xs text-gray-500 mb-1">Hora hasta</label>
           <input v-model="horaHasta" type="time"
             class="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Vendedor</label>
+          <select v-model="vendedorId" @change="loadHistorial"
+            class="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white min-w-[9rem]">
+            <option :value="null">Todos</option>
+            <option v-for="u in vendedores" :key="u.id" :value="u.id">{{ userName(u) }}</option>
+          </select>
         </div>
         <button @click="loadHistorial"
           class="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors">

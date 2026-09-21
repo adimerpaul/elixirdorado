@@ -38,6 +38,15 @@ class VentaController extends Controller
                 ->endOfMinute()->setTimezone('UTC'));
         }
 
+        // Vendedores con ventas en el rango (antes de filtrar por vendedor, para el selector)
+        $vendedores = \App\Models\User::whereIn('id', (clone $query)->select('usuario_id'))
+            ->orderBy('name')
+            ->get(['id', 'name', 'nickname']);
+
+        if ($request->filled('usuario_id')) {
+            $query->where('usuario_id', $request->integer('usuario_id'));
+        }
+
         $ventas = $query->latest()->get();
 
         $ventasCompletadas = $ventas->where('estado', 'completada');
@@ -91,7 +100,7 @@ class VentaController extends Controller
             ];
         }
 
-        return response()->json(['ventas' => $ventas, 'stats' => $stats]);
+        return response()->json(['ventas' => $ventas, 'stats' => $stats, 'vendedores' => $vendedores]);
     }
 
     public function store(Request $request, Sucursal $sucursal)
